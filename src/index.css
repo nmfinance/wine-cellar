@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+  /* винная палитра приложения */
+  --color-wine-50: #faf3f4;
+  --color-wine-100: #f3e1e3;
+  --color-wine-200: #e5c2c7;
+  --color-wine-400: #a55560;
+  --color-wine-600: #722f37;
+  --color-wine-700: #5c262d;
+  --color-wine-800: #471d22;
+  --color-wine-900: #331518;
+}

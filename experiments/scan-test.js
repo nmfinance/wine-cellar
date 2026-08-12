@@ -37,11 +37,16 @@ function hintOnFetchError(err) {
 // --- prompts.md ------------------------------------------------------------
 
 async function loadPromptS1() {
+  // prompts.md живёт в корне репозитория, эксперименты — в experiments/
   let md;
   try {
-    md = await readFile('prompts.md', 'utf8');
+    md = await readFile('../prompts.md', 'utf8');
   } catch {
-    die('Не найден prompts.md рядом со скриптом. Положи файл и запусти снова.');
+    try {
+      md = await readFile('prompts.md', 'utf8');
+    } catch {
+      die('Не найден prompts.md в корне репозитория. Положи файл и запусти снова.');
+    }
   }
   const s1Section = md.split(/^## /m).find((s) => s.startsWith('S1'));
   const block = s1Section?.match(/```\r?\n([\s\S]*?)```/);
