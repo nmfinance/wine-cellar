@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Эксперимент: распознавание винных этикеток через GigaChat API",
   "scripts": {
-    "test-labels": "cross-env NODE_EXTRA_CA_CERTS=./certs/russiantrustedca.pem node scan-test.js"
+    "test-labels": "cross-env NODE_EXTRA_CA_CERTS=./certs/russiantrustedca.pem node scan-test.js",
+    "test-vivino": "node vivino-test.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
