@@ -29,16 +29,18 @@ export default function SearchBar({
           {viewMode === 'shelves' ? <LayoutGrid className="size-4" /> : <Rows3 className="size-4" />}
         </button>
       )}
-      <button
-        onClick={onFilters}
-        aria-label="Фильтры"
-        className="relative grid size-10 shrink-0 place-items-center rounded-lg border border-stone-200 bg-white text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
-      >
-        <SlidersHorizontal className="size-4" />
-        {filtersActive && (
-          <span className="absolute -top-1 -right-1 size-2.5 rounded-full bg-wine-600 dark:bg-wine-400" />
-        )}
-      </button>
+      {onFilters && (
+        <button
+          onClick={onFilters}
+          aria-label="Фильтры"
+          className="relative grid size-10 shrink-0 place-items-center rounded-lg border border-stone-200 bg-white text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+        >
+          <SlidersHorizontal className="size-4" />
+          {filtersActive && (
+            <span className="absolute -top-1 -right-1 size-2.5 rounded-full bg-wine-600 dark:bg-wine-400" />
+          )}
+        </button>
+      )}
     </div>
   );
 }

@@ -59,6 +59,15 @@ export async function listFiltered(status, query = '', filters = {}) {
     .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
 }
 
+// Лента Истории: хронология по historyAt desc, с поиском и фильтром по причине
+export async function listHistory(query = '', reason = 'all') {
+  const wines = await db.wines.where('status').equals('history').toArray();
+  return wines
+    .filter((w) => matchesQuery([w.name, w.wineryName], query))
+    .filter((w) => reason === 'all' || w.historyReason === reason)
+    .sort((a, b) => (b.historyAt ?? '').localeCompare(a.historyAt ?? ''));
+}
+
 // Опции для секций «Страна» и «Сорт» — собираются из вин текущей вкладки
 export async function facetOptions(status) {
   const wines = await db.wines.where('status').equals(status).toArray();

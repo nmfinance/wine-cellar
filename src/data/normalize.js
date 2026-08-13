@@ -22,11 +22,19 @@ export function transliterate(str) {
     .join('');
 }
 
-// Поиск: «бар» находит и «Barolo» (транслитерация), и «Барбареско»
+// Свёртка к общей форме: кириллица → латиница, затем схлопывание вариантов
+// записи одного звука (Rioja / Риоха / Rioha → rioha).
+function foldForSearch(str) {
+  return transliterate(normalizeName(str))
+    .replace(/kh/g, 'h')
+    .replace(/j/g, 'h');
+}
+
+// Поиск: «бар» находит «Barolo», «риоха» — «Rioja»
 export function matchesQuery(fields, query) {
   const q = normalizeName(query);
   if (!q) return true;
-  const haystack = fields.filter(Boolean).map(normalizeName).join(' ');
-  const variants = [...new Set([q, transliterate(q)])];
-  return variants.some((v) => haystack.includes(v));
+  const raw = fields.filter(Boolean).map(normalizeName).join(' ');
+  if (raw.includes(q)) return true;
+  return foldForSearch(raw).includes(foldForSearch(query));
 }
