@@ -133,6 +133,15 @@ export function drinkBottle(id) {
   });
 }
 
+// Каскадное удаление: вино + его фото + дегустации, одной транзакцией
+export function deleteWineCascade(id) {
+  return db.transaction('rw', [db.wines, db.photos, db.tastings], async () => {
+    await db.photos.where('wineId').equals(id).delete();
+    await db.tastings.where('wineId').equals(id).delete();
+    await db.wines.delete(id);
+  });
+}
+
 // Перемещение между вкладками (в т.ч. возврат из Истории)
 export async function moveTo(id, status) {
   const patch = { status, updatedAt: now() };
