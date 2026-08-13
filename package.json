@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "make-icons": "node scripts/make-icons.js"
+    "make-icons": "node scripts/make-icons.js",
+    "deploy:proxy": "powershell -ExecutionPolicy Bypass -File proxy/deploy.ps1"
   },
   "dependencies": {
     "dexie": "^4.0.8",

@@ -1,0 +1,18 @@
+# Шаблон спеки API Gateway: {{FUNCTION_ID}} подставляет deploy.ps1.
+# Шлюз нужен, потому что прямой вызов functions.yandexcloud.net/<id>
+# не принимает суффиксы пути (/ai, /vivino).
+openapi: 3.0.0
+info:
+  title: pogreb-proxy
+  version: 1.0.0
+paths:
+  /ai:
+    x-yc-apigateway-any-method:
+      x-yc-apigateway-integration:
+        type: cloud_functions
+        function_id: "{{FUNCTION_ID}}"
+  /vivino:
+    x-yc-apigateway-any-method:
+      x-yc-apigateway-integration:
+        type: cloud_functions
+        function_id: "{{FUNCTION_ID}}"
