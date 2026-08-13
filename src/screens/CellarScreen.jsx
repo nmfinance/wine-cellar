@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { BarChart3, Clock, MapPin, Settings, Wine } from 'lucide-react';
 import { db } from '../db.js';
@@ -29,6 +29,7 @@ const EMPTY_TEXT = {
 };
 
 export default function CellarScreen({ tab }) {
+  const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(emptyFilters);
   const [addSheetOpen, setAddSheetOpen] = useState(false);
@@ -126,7 +127,10 @@ export default function CellarScreen({ tab }) {
             📷 Скан этикетки
           </button>
           <button
-            onClick={pickAddOption}
+            onClick={() => {
+              setAddSheetOpen(false);
+              navigate('/add');
+            }}
             className="rounded-lg px-3 py-3 text-left text-[15px] hover:bg-stone-100 dark:hover:bg-stone-800"
           >
             ✍️ Вручную

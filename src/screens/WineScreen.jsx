@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ArrowLeft,
@@ -119,7 +119,17 @@ function Tile({ label, wide = false, muted = false, children }) {
 export default function WineScreen() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const [toast, setToast] = useState(null);
+
+  // тост «Сохранено» после возврата из формы
+  useEffect(() => {
+    if (location.state?.toast) {
+      setToast(location.state.toast);
+      navigate(location.pathname + location.search, { replace: true, state: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const wine = useLiveQuery(() => db.wines.get(id).then((w) => w ?? null), [id]);
   const tastings = useLiveQuery(
@@ -223,7 +233,7 @@ export default function WineScreen() {
         </button>
         <div className="flex items-center">
           <button
-            onClick={() => setToast('Скоро')}
+            onClick={() => navigate(`/wine/${wine.id}/edit`)}
             aria-label="Редактировать"
             className="grid size-10 place-items-center rounded-lg text-stone-500 dark:text-stone-400"
           >
