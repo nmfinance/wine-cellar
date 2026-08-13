@@ -1,12 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { BarChart3, Clock, MapPin, Settings, Wine } from 'lucide-react';
 import { db } from '../db.js';
-import { matchesQuery, normalizeName } from '../data/normalize.js';
+import { normalizeName } from '../data/normalize.js';
+import { listFiltered } from '../data/wines.js';
+import { emptyFilters, hasActive } from '../data/filters.js';
 import BottomSheet from '../components/BottomSheet.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import Fab from '../components/Fab.jsx';
+import FilterChips from '../components/FilterChips.jsx';
+import FilterSheet from '../components/FilterSheet.jsx';
 import OfflineBadge from '../components/OfflineBadge.jsx';
 import SearchBar from '../components/SearchBar.jsx';
 import TabBar from '../components/TabBar.jsx';
@@ -26,8 +30,16 @@ const EMPTY_TEXT = {
 
 export default function CellarScreen({ tab }) {
   const [query, setQuery] = useState('');
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [filters, setFilters] = useState(emptyFilters);
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [toast, setToast] = useState(null);
+
+  // фильтры живут в памяти и сбрасываются при переключении вкладки
+  useEffect(() => {
+    setFilters(emptyFilters());
+    setFilterSheetOpen(false);
+  }, [tab]);
 
   const counts = useLiveQuery(async () => ({
     cellar: await db.wines.where('status').equals('cellar').count(),
@@ -36,17 +48,16 @@ export default function CellarScreen({ tab }) {
   }));
 
   const wines = useLiveQuery(
-    () => (tab === 'history' ? [] : db.wines.where('status').equals(tab).toArray()),
-    [tab]
+    () => (tab === 'history' ? [] : listFiltered(tab, query, filters)),
+    [tab, query, filters]
   );
 
   const q = normalizeName(query);
-  const shown = (wines ?? [])
-    .filter((w) => matchesQuery([w.name, w.wineryName], query))
-    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+  const filtersActive = hasActive(filters);
+  const shown = wines ?? [];
 
   const pickAddOption = () => {
-    setSheetOpen(false);
+    setAddSheetOpen(false);
     setToast('Скоро');
   };
 
@@ -65,6 +76,8 @@ export default function CellarScreen({ tab }) {
     );
   } else if (q) {
     content = <EmptyState icon={Wine}>Ничего не нашлось по «{query.trim()}»</EmptyState>;
+  } else if (filtersActive) {
+    content = <EmptyState icon={Wine}>Ничего не найдено по выбранным фильтрам</EmptyState>;
   } else {
     content = <EmptyState icon={Wine}>{EMPTY_TEXT[tab]}</EmptyState>;
   }
@@ -90,15 +103,21 @@ export default function CellarScreen({ tab }) {
 
       <TabBar counts={counts} />
 
-      <div className="mt-3 mb-3">
-        <SearchBar value={query} onChange={setQuery} onFilters={() => setToast('Скоро')} />
+      <div className="mt-3">
+        <SearchBar
+          value={query}
+          onChange={setQuery}
+          onFilters={() => setFilterSheetOpen(true)}
+          filtersActive={filtersActive}
+        />
+        <FilterChips filters={filters} onChange={setFilters} />
       </div>
 
-      {content}
+      <div className="mt-3">{content}</div>
 
-      <Fab onClick={() => setSheetOpen(true)} />
+      <Fab onClick={() => setAddSheetOpen(true)} />
 
-      <BottomSheet open={sheetOpen} onClose={() => setSheetOpen(false)} title="Добавить вино">
+      <BottomSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)} title="Добавить вино">
         <div className="flex flex-col gap-1 p-3 pb-5">
           <button
             onClick={pickAddOption}
@@ -114,6 +133,17 @@ export default function CellarScreen({ tab }) {
           </button>
         </div>
       </BottomSheet>
+
+      {tab !== 'history' && (
+        <FilterSheet
+          open={filterSheetOpen}
+          onClose={() => setFilterSheetOpen(false)}
+          status={tab}
+          query={query}
+          applied={filters}
+          onApply={setFilters}
+        />
+      )}
 
       <Toast message={toast} onDone={() => setToast(null)} />
     </div>

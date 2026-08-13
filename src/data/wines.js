@@ -12,6 +12,66 @@ export function search(query) {
   return db.wines.filter((w) => matchesQuery([w.name, w.wineryName], query)).toArray();
 }
 
+// Каталог с поиском и фильтрами: внутри секции — ИЛИ, между секциями — И.
+// filters: { colors, sweetness, special, countries, grapes, tasted } (массивы)
+export async function listFiltered(status, query = '', filters = {}) {
+  const f = {
+    colors: [],
+    sweetness: [],
+    special: [],
+    countries: [],
+    grapes: [],
+    tasted: [],
+    ...filters,
+  };
+  const wines = await db.wines.where('status').equals(status).toArray();
+
+  // статистика дегустаций нужна только для секции «Дегустации»
+  let stats = null;
+  if (f.tasted.length) {
+    stats = new Map();
+    await db.tastings.each((t) => {
+      const cur = stats.get(t.wineId) ?? { count: 0, max: 0 };
+      cur.count += 1;
+      cur.max = Math.max(cur.max, t.totalScore ?? 0);
+      stats.set(t.wineId, cur);
+    });
+  }
+
+  return wines
+    .filter((w) => {
+      if (!matchesQuery([w.name, w.wineryName], query)) return false;
+      if (f.colors.length && !f.colors.includes(w.color)) return false;
+      if (f.sweetness.length && !f.sweetness.includes(w.sweetness)) return false;
+      if (f.special.length && !f.special.some((key) => w[key])) return false;
+      if (f.countries.length && !f.countries.includes(w.country)) return false;
+      if (f.grapes.length && !(w.grapes ?? []).some((g) => f.grapes.includes(g.name)))
+        return false;
+      if (f.tasted.length) {
+        const st = stats.get(w.id);
+        const ok = f.tasted.some((key) =>
+          key === 'none' ? !st : key === 'tasted' ? !!st : key === 'high' ? (st?.max ?? 0) >= 8 : false
+        );
+        if (!ok) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
+}
+
+// Опции для секций «Страна» и «Сорт» — собираются из вин текущей вкладки
+export async function facetOptions(status) {
+  const wines = await db.wines.where('status').equals(status).toArray();
+  const collator = new Intl.Collator('ru');
+  const countries = [...new Set(wines.map((w) => w.country).filter(Boolean))].sort(
+    collator.compare
+  );
+  const grapes = [
+    ...new Set(wines.flatMap((w) => (w.grapes ?? []).map((g) => g.name)).filter(Boolean)),
+  ].sort(collator.compare);
+  return { countries, grapes };
+}
+
 export async function addWine(data) {
   const ts = now();
   const wine = {
