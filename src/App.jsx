@@ -1,6 +1,7 @@
 import { HashRouter, Route, Routes } from 'react-router-dom';
 import CellarScreen from './screens/CellarScreen.jsx';
 import CellarSettingsScreen from './screens/CellarSettingsScreen.jsx';
+import ScanScreen from './screens/ScanScreen.jsx';
 import SettingsScreen from './screens/SettingsScreen.jsx';
 import StubScreen from './screens/StubScreen.jsx';
 import TastingScreen from './screens/TastingScreen.jsx';
@@ -17,6 +18,7 @@ export default function App() {
             <Route path="/wishlist" element={<CellarScreen tab="wishlist" />} />
             <Route path="/history" element={<CellarScreen tab="history" />} />
             <Route path="/add" element={<WineFormScreen mode="create" />} />
+            <Route path="/scan" element={<ScanScreen />} />
             <Route path="/wine/:id" element={<WineScreen />} />
             <Route path="/wine/:id/edit" element={<WineFormScreen mode="edit" />} />
             <Route path="/tasting/:id" element={<TastingScreen />} />

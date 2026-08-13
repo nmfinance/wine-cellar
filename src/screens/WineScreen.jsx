@@ -197,6 +197,7 @@ export default function WineScreen() {
     if (!vivino) return null;
     if (vivino.source === 'vintage') return 'этот винтаж';
     if (vivino.source === 'nearby_vintage') {
+      if (vivino.matchedYear) return `винтаж ${vivino.matchedYear}`;
       const y = vivino.matchedName?.match(/\b(19|20)\d{2}\b/);
       return y ? `винтаж ${y[0]}` : 'соседний винтаж';
     }

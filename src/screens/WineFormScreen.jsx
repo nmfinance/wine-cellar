@@ -8,6 +8,7 @@ import { listRacks, shelfOccupancy } from '../data/cellar.js';
 import { compressImage } from '../utils/image.js';
 import CellarStructureEditor from '../components/CellarStructureEditor.jsx';
 import Toast from '../components/Toast.jsx';
+import VivinoSearchBlock from '../components/VivinoSearchBlock.jsx';
 
 const inputCls =
   'h-10 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm outline-none focus:border-wine-400 dark:border-stone-700 dark:bg-stone-900';
@@ -60,11 +61,23 @@ function Field({ label, confKey, confidence, children }) {
   );
 }
 
-// Многорежимная форма: create | edit | scan-review (задел — initialData+confidence)
-export function WineForm({ mode, wine = null, initialData = null, confidence = null }) {
+// Многорежимная форма: create | edit | scan-review (initialData + confidence
+// + initialPhotos + vivinoQuery — приходят из потока скана)
+export function WineForm({
+  mode,
+  wine = null,
+  initialData = null,
+  confidence = null,
+  initialPhotos = null,
+  banner = null,
+  source = 'manual',
+  vivinoQuery = null,
+  vivinoYear = null,
+}) {
   const navigate = useNavigate();
   const [toast, setToast] = useState(null);
   const [saving, setSaving] = useState(false);
+  const vivinoRef = useRef(null); // результат VivinoSearchBlock к моменту сабмита
 
   const src = wine ?? initialData;
   const [f, setF] = useState(() => ({
@@ -94,7 +107,14 @@ export function WineForm({ mode, wine = null, initialData = null, confidence = n
   const set = (key, value) => setF((prev) => ({ ...prev, [key]: value }));
 
   // --- фото: blob'ы в стейте, запись только при сохранении -------------------
-  const [photos, setPhotos] = useState([]); // {key, id?, blob, url, existing}
+  const [photos, setPhotos] = useState(() =>
+    (initialPhotos ?? []).map((blob) => ({
+      key: crypto.randomUUID(),
+      blob,
+      url: URL.createObjectURL(blob),
+      existing: false,
+    }))
+  ); // {key, id?, blob, url, existing}
   const [removedIds, setRemovedIds] = useState([]);
   const fileRef = useRef(null);
   const photosRef = useRef([]);
@@ -221,21 +241,26 @@ export function WineForm({ mode, wine = null, initialData = null, confidence = n
         const rec = await addWine({
           ...data,
           status,
-          source: 'manual',
+          source,
           quantity: isCellar ? f.quantity : 0,
           location:
             isCellar && f.rackId && f.shelf != null ? { rackId: f.rackId, shelf: f.shelf } : null,
           locationFreeText: isCellar ? f.locationFreeText.trim() || null : null,
+          // наследие скана: AI-справка, confidence для жёлтых рамок, Vivino-матч
+          ...(initialData?.aiReference ? { aiReference: initialData.aiReference } : {}),
+          ...(confidence ? { confidence } : {}),
+          ...(vivinoRef.current ? { vivino: vivinoRef.current } : {}),
         });
         wineId = rec.id;
       }
 
-      // ручной рейтинг Vivino
+      // ручной рейтинг Vivino (перебивает найденное сканом, сохраняя матч)
       const rating = num(f.vivinoRating);
-      if (rating != null && rating !== (wine?.vivino?.rating ?? null)) {
+      const vivinoBase = wine?.vivino ?? vivinoRef.current ?? null;
+      if (rating != null && rating !== (vivinoBase?.rating ?? null)) {
         const now = new Date().toISOString();
-        const vivino = wine?.vivino
-          ? { ...wine.vivino, rating, manual: true, checkedAt: now }
+        const vivino = vivinoBase
+          ? { ...vivinoBase, rating, manual: true, checkedAt: now }
           : {
               rating,
               ratingsCount: null,
@@ -290,6 +315,8 @@ export function WineForm({ mode, wine = null, initialData = null, confidence = n
           {mode === 'edit' ? 'Редактировать вино' : 'Новое вино'}
         </h1>
       </header>
+
+      {banner}
 
       <div className="flex-1 space-y-4 px-4 pt-2 pb-4">
         {/* Фото */}
@@ -645,6 +672,16 @@ export function WineForm({ mode, wine = null, initialData = null, confidence = n
             placeholder="Подарок, открыть на юбилей…"
           />
         </Field>
+
+        {vivinoQuery && (
+          <VivinoSearchBlock
+            initialQuery={vivinoQuery}
+            year={vivinoYear}
+            onResult={(v) => {
+              vivinoRef.current = v;
+            }}
+          />
+        )}
       </div>
 
       {/* Кнопки */}

@@ -127,11 +127,6 @@ export default function CellarScreen({ tab }) {
   const filtersActive = hasActive(filters);
   const shown = wines ?? [];
 
-  const pickAddOption = () => {
-    setAddSheetOpen(false);
-    setToast('Скоро');
-  };
-
   let content;
   if (wines === undefined) {
     content = null;
@@ -263,7 +258,10 @@ export default function CellarScreen({ tab }) {
       <BottomSheet open={addSheetOpen} onClose={() => setAddSheetOpen(false)} title="Добавить вино">
         <div className="flex flex-col gap-1 p-3 pb-5">
           <button
-            onClick={pickAddOption}
+            onClick={() => {
+              setAddSheetOpen(false);
+              navigate('/scan');
+            }}
             className="rounded-lg px-3 py-3 text-left text-[15px] hover:bg-stone-100 dark:hover:bg-stone-800"
           >
             📷 Скан этикетки
