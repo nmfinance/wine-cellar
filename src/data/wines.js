@@ -1,5 +1,5 @@
 import { db } from '../db.js';
-import { normalizeName } from './normalize.js';
+import { matchesQuery, normalizeName } from './normalize.js';
 
 const now = () => new Date().toISOString();
 
@@ -8,14 +8,8 @@ export function listByStatus(status) {
 }
 
 export function search(query) {
-  const q = normalizeName(query);
-  if (!q) return db.wines.toArray();
-  return db.wines
-    .filter(
-      (w) =>
-        normalizeName(w.name).includes(q) || normalizeName(w.wineryName).includes(q)
-    )
-    .toArray();
+  if (!normalizeName(query)) return db.wines.toArray();
+  return db.wines.filter((w) => matchesQuery([w.name, w.wineryName], query)).toArray();
 }
 
 export async function addWine(data) {
