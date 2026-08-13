@@ -1,0 +1,13 @@
+{
+  "name": "pogreb-ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI-ветка «Моего погреба»: Cloudflare Worker → Gemini",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,9 @@
+name = "pogreb-ai"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# секреты (wrangler secret put): GEMINI_API_KEY, APP_KEY
+[vars]
+# П9.5: gemini-2.5-flash недоступна новым ключам; alias flash-latest вёл на
+# перегруженную 3.6/3.7 (503 на фото) — пиним проверенную стабильную
+GEMINI_MODEL = "gemini-3.5-flash"
