@@ -6,6 +6,7 @@ import { db } from '../db.js';
 import { addWine, updateWine } from '../data/wines.js';
 import { listRacks, shelfOccupancy } from '../data/cellar.js';
 import { compressImage } from '../utils/image.js';
+import CellarStructureEditor from '../components/CellarStructureEditor.jsx';
 import Toast from '../components/Toast.jsx';
 
 const inputCls =
@@ -167,6 +168,8 @@ export function WineForm({ mode, wine = null, initialData = null, confidence = n
     [f.rackId]
   );
   const [freeTextOpen, setFreeTextOpen] = useState(!!src?.locationFreeText);
+  // конструктор погреба открывается ОВЕРЛЕЕМ, чтобы форма не теряла стейт
+  const [cellarEditorOpen, setCellarEditorOpen] = useState(false);
   const selectedRack = racks?.find((r) => r.id === f.rackId);
 
   // предупреждение по процентам сортов
@@ -591,6 +594,13 @@ export function WineForm({ mode, wine = null, initialData = null, confidence = n
                     Другое место (текстом)
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setCellarEditorOpen(true)}
+                  className="flex items-center gap-1.5 text-sm text-stone-500 dark:text-stone-400"
+                >
+                  <Settings className="size-4" /> Настроить структуру погреба
+                </button>
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -602,7 +612,7 @@ export function WineForm({ mode, wine = null, initialData = null, confidence = n
                 />
                 <button
                   type="button"
-                  onClick={() => setToast('Скоро')}
+                  onClick={() => setCellarEditorOpen(true)}
                   className="flex items-center gap-1.5 text-sm text-stone-500 dark:text-stone-400"
                 >
                   <Settings className="size-4" /> Настроить структуру погреба
@@ -669,6 +679,23 @@ export function WineForm({ mode, wine = null, initialData = null, confidence = n
           </div>
         )}
       </div>
+
+      {/* конструктор погреба поверх формы — стейт формы сохраняется */}
+      {cellarEditorOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-stone-50 dark:bg-stone-950">
+          <div className="mx-auto max-w-[480px] pb-8">
+            <header className="sticky top-0 z-10 bg-stone-50/95 px-2 py-2 backdrop-blur dark:bg-stone-950/95">
+              <button
+                onClick={() => setCellarEditorOpen(false)}
+                className="flex items-center gap-1 rounded-lg px-2 py-2 text-sm font-medium text-wine-600 dark:text-wine-400"
+              >
+                <ArrowLeft className="size-4" /> Готово
+              </button>
+            </header>
+            <CellarStructureEditor />
+          </div>
+        </div>
+      )}
 
       <Toast message={toast} onDone={() => setToast(null)} />
     </div>

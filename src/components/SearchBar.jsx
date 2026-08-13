@@ -1,6 +1,13 @@
-import { Search, SlidersHorizontal } from 'lucide-react';
+import { LayoutGrid, Rows3, Search, SlidersHorizontal } from 'lucide-react';
 
-export default function SearchBar({ value, onChange, onFilters, filtersActive = false }) {
+export default function SearchBar({
+  value,
+  onChange,
+  onFilters,
+  filtersActive = false,
+  viewMode = null, // 'grid' | 'shelves' | null (без тумблера)
+  onToggleView = null,
+}) {
   return (
     <div className="mx-4 flex gap-2">
       <div className="relative flex-1">
@@ -13,6 +20,15 @@ export default function SearchBar({ value, onChange, onFilters, filtersActive = 
           className="h-10 w-full rounded-lg border border-stone-200 bg-white pr-3 pl-9 text-sm outline-none focus:border-wine-400 dark:border-stone-700 dark:bg-stone-900"
         />
       </div>
+      {onToggleView && (
+        <button
+          onClick={onToggleView}
+          aria-label={viewMode === 'shelves' ? 'Вид: сетка' : 'Вид: по полкам'}
+          className="grid size-10 shrink-0 place-items-center rounded-lg border border-stone-200 bg-white text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
+        >
+          {viewMode === 'shelves' ? <LayoutGrid className="size-4" /> : <Rows3 className="size-4" />}
+        </button>
+      )}
       <button
         onClick={onFilters}
         aria-label="Фильтры"

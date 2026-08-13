@@ -5,6 +5,7 @@ import { BarChart3, Clock, MapPin, Settings, Wine } from 'lucide-react';
 import { db } from '../db.js';
 import { normalizeName } from '../data/normalize.js';
 import { listFiltered } from '../data/wines.js';
+import { listRacks } from '../data/cellar.js';
 import { emptyFilters, hasActive } from '../data/filters.js';
 import BottomSheet from '../components/BottomSheet.jsx';
 import EmptyState from '../components/EmptyState.jsx';
@@ -16,6 +17,7 @@ import SearchBar from '../components/SearchBar.jsx';
 import TabBar from '../components/TabBar.jsx';
 import Toast from '../components/Toast.jsx';
 import WineCard from '../components/WineCard.jsx';
+import WineRow from '../components/WineRow.jsx';
 
 const HEADER_LINKS = [
   { to: '/stats', icon: BarChart3, label: 'Статистика' },
@@ -27,6 +29,36 @@ const EMPTY_TEXT = {
   cellar: 'В погребе пусто. Добавь первое вино кнопкой +',
   wishlist: 'Сюда попадут вина, которые хочешь купить',
 };
+
+// Группировка вин погреба по стеллажам и полкам для режима «По полкам»
+function groupByShelves(wines, racks) {
+  const groups = [];
+  for (const rack of racks) {
+    for (const shelf of rack.shelves) {
+      const ws = wines.filter(
+        (w) => w.location?.rackId === rack.id && w.location.shelf === shelf.n
+      );
+      if (!ws.length) continue;
+      const count = ws.reduce((a, w) => a + (w.quantity ?? 0), 0);
+      groups.push({
+        key: `${rack.id}:${shelf.n}`,
+        title: `${rack.name} · полка ${shelf.n} · ${count}${shelf.capacity != null ? `/${shelf.capacity}` : ''}`,
+        wines: ws,
+        noPlace: false,
+      });
+    }
+  }
+  const noPlace = wines.filter((w) => !w.location);
+  if (noPlace.length) {
+    groups.push({
+      key: 'no-place',
+      title: `📦 Без места · ${noPlace.length}`,
+      wines: noPlace,
+      noPlace: true,
+    });
+  }
+  return groups;
+}
 
 export default function CellarScreen({ tab }) {
   const navigate = useNavigate();
@@ -53,6 +85,13 @@ export default function CellarScreen({ tab }) {
     [tab, query, filters]
   );
 
+  // режим отображения погреба: 'grid' | 'shelves', живёт в meta
+  const viewMeta = useLiveQuery(() => db.meta.get('cellarViewMode'));
+  const viewMode = tab === 'cellar' ? (viewMeta?.value ?? 'grid') : 'grid';
+  const toggleView = () =>
+    db.meta.put({ key: 'cellarViewMode', value: viewMode === 'grid' ? 'shelves' : 'grid' });
+  const racks = useLiveQuery(listRacks);
+
   const q = normalizeName(query);
   const filtersActive = hasActive(filters);
   const shown = wines ?? [];
@@ -68,13 +107,37 @@ export default function CellarScreen({ tab }) {
   } else if (wines === undefined) {
     content = null;
   } else if (shown.length > 0) {
-    content = (
-      <div className="grid grid-cols-2 gap-2.5 px-4">
-        {shown.map((wine) => (
-          <WineCard key={wine.id} wine={wine} />
-        ))}
-      </div>
-    );
+    if (viewMode === 'shelves') {
+      const groups = groupByShelves(shown, racks ?? []);
+      content = (
+        <div className="space-y-4 px-4">
+          {groups.map((g) => (
+            <div key={g.key}>
+              <h3 className="mb-1.5 text-xs font-medium text-stone-500 dark:text-stone-400">
+                {g.title}
+              </h3>
+              <div className="space-y-1.5">
+                {g.wines.map((wine) => (
+                  <WineRow
+                    key={wine.id}
+                    wine={wine}
+                    subtitle={g.noPlace ? wine.locationFreeText ?? undefined : undefined}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    } else {
+      content = (
+        <div className="grid grid-cols-2 gap-2.5 px-4">
+          {shown.map((wine) => (
+            <WineCard key={wine.id} wine={wine} />
+          ))}
+        </div>
+      );
+    }
   } else if (q) {
     content = <EmptyState icon={Wine}>Ничего не нашлось по «{query.trim()}»</EmptyState>;
   } else if (filtersActive) {
@@ -110,6 +173,8 @@ export default function CellarScreen({ tab }) {
           onChange={setQuery}
           onFilters={() => setFilterSheetOpen(true)}
           filtersActive={filtersActive}
+          viewMode={tab === 'cellar' ? viewMode : null}
+          onToggleView={tab === 'cellar' ? toggleView : null}
         />
         <FilterChips filters={filters} onChange={setFilters} />
       </div>
