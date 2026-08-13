@@ -52,18 +52,13 @@ export default function ScanScreen() {
   const [banner, setBanner] = useState(null); // {text, action?: 'manual'|'retry', warn?}
   const [statusIdx, setStatusIdx] = useState(0);
   const [review, setReview] = useState(null); // {s1, initialData, vivinoQuery}
-  const fileRef = useRef(null);
+  const cameraRef = useRef(null); // input с capture — принудительная камера
+  const galleryRef = useRef(null); // input без capture — системный выбор
   const abortRef = useRef(null);
-  const autoOpened = useRef(false);
   const photosRef = useRef([]);
   photosRef.current = photos;
 
-  // сразу открываем камеру/галерею (если браузер позволит без жеста)
   useEffect(() => {
-    if (!autoOpened.current) {
-      autoOpened.current = true;
-      fileRef.current?.click();
-    }
     return () => photosRef.current.forEach((p) => URL.revokeObjectURL(p.url));
   }, []);
 
@@ -102,7 +97,6 @@ export default function ScanScreen() {
     setReview(null);
     setBanner(null);
     setStep('photo');
-    setTimeout(() => fileRef.current?.click(), 50);
   };
 
   const doScan = async () => {
@@ -217,13 +211,14 @@ export default function ScanScreen() {
       </header>
 
       <input
-        ref={fileRef}
+        ref={cameraRef}
         type="file"
         accept="image/*"
         capture="environment"
         className="hidden"
         onChange={onFile}
       />
+      <input ref={galleryRef} type="file" accept="image/*" className="hidden" onChange={onFile} />
 
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 pb-16">
         {banner && (
@@ -249,13 +244,20 @@ export default function ScanScreen() {
         )}
 
         {photos.length === 0 ? (
-          <button
-            onClick={() => fileRef.current?.click()}
-            className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-stone-300 px-14 py-12 text-stone-500 dark:border-stone-600 dark:text-stone-400"
-          >
-            <Camera className="size-10" strokeWidth={1.5} />
-            <span className="text-sm font-medium">Снять этикетку</span>
-          </button>
+          <div className="flex w-full max-w-xs flex-col gap-2">
+            <button
+              onClick={() => cameraRef.current?.click()}
+              className="flex items-center justify-center gap-2 rounded-xl bg-wine-600 py-4 text-[15px] font-medium text-white dark:bg-wine-400 dark:text-stone-950"
+            >
+              <Camera className="size-5" /> Снять этикетку
+            </button>
+            <button
+              onClick={() => galleryRef.current?.click()}
+              className="rounded-xl border border-stone-300 py-3.5 text-sm font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
+            >
+              🖼 Выбрать из галереи
+            </button>
+          </div>
         ) : (
           <>
             <div className="flex gap-3">
@@ -278,7 +280,7 @@ export default function ScanScreen() {
             <div className="flex w-full max-w-xs flex-col gap-2">
               {photos.length === 1 && (
                 <button
-                  onClick={() => fileRef.current?.click()}
+                  onClick={() => galleryRef.current?.click()}
                   className="rounded-lg border border-stone-300 py-2.5 text-sm font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
                 >
                   + Контрэтикетка

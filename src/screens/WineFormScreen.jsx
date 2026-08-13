@@ -345,11 +345,11 @@ export function WineForm({
               Фото
             </span>
           </button>
+          {/* без capture: системный выбор — камера или галерея */}
           <input
             ref={fileRef}
             type="file"
             accept="image/*"
-            capture="environment"
             multiple
             className="hidden"
             onChange={onFiles}
