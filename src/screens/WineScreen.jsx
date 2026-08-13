@@ -3,17 +3,23 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ArrowLeft,
+  Check,
+  ChevronDown,
   ChevronRight,
   Heart,
   MapPin,
   Pencil,
+  Search,
   Sparkles,
   Trash2,
   Wine,
 } from 'lucide-react';
 import { db } from '../db.js';
 import { deleteWineCascade, moveTo, updateWine } from '../data/wines.js';
+import { lookupVivinoCached } from '../api/vivino.js';
+import { matchScore } from '../api/score.js';
 import { PLACEHOLDER_BY_COLOR, formatPrice, scoreBadgeClasses } from '../theme.js';
+import PhotoLightbox from '../components/PhotoLightbox.jsx';
 import Toast from '../components/Toast.jsx';
 
 const COLOR_LABEL = { red: 'Красное', white: 'Белое', rose: 'Розовое', orange: 'Оранжевое' };
@@ -44,6 +50,7 @@ function PhotoGallery({ wine }) {
   );
   const [urls, setUrls] = useState([]);
   const [active, setActive] = useState(0);
+  const [lightbox, setLightbox] = useState(null); // индекс открытого фото
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -80,7 +87,13 @@ function PhotoGallery({ wine }) {
         className="flex h-[170px] snap-x snap-mandatory overflow-x-auto rounded-xl [scrollbar-width:none]"
       >
         {urls.map((u, i) => (
-          <img key={i} src={u} alt="" className="h-full w-full flex-none snap-center object-cover" />
+          <img
+            key={i}
+            src={u}
+            alt=""
+            onClick={() => setLightbox(i)}
+            className="h-full w-full flex-none cursor-zoom-in snap-center object-cover"
+          />
         ))}
       </div>
       {urls.length > 1 && (
@@ -93,15 +106,26 @@ function PhotoGallery({ wine }) {
           ))}
         </div>
       )}
+      {lightbox != null && (
+        <PhotoLightbox urls={urls} start={lightbox} onClose={() => setLightbox(null)} />
+      )}
     </div>
   );
 }
 
 // --- Тайл атрибута -----------------------------------------------------------
 
-function Tile({ label, wide = false, muted = false, children }) {
+function Tile({ label, wide = false, muted = false, warn = false, children }) {
   return (
-    <div className={`rounded-lg bg-white p-3 dark:bg-stone-900 ${wide ? 'col-span-2' : ''}`}>
+    <div
+      className={`relative rounded-lg bg-white p-3 dark:bg-stone-900 ${wide ? 'col-span-2' : ''}`}
+    >
+      {warn && (
+        <span
+          title="AI не был уверен"
+          className="absolute top-2 right-2 size-2 rounded-full bg-amber-400"
+        />
+      )}
       <p className="text-[11px] text-stone-400 dark:text-stone-500">{label}</p>
       <p
         className={`mt-0.5 text-sm whitespace-pre-line ${
@@ -114,6 +138,168 @@ function Tile({ label, wide = false, muted = false, children }) {
   );
 }
 
+// --- Вкусовой профиль: 4 шкалы с точкой -------------------------------------
+
+const TASTE_SCALES = [
+  ['body', 'Лёгкое', 'Полнотелое'],
+  ['tannin', 'Мягкие танины', 'Крепкие'],
+  ['acidity', 'Низкая кислотность', 'Высокая'],
+  ['sweetness', 'Сухое', 'Сладкое'],
+];
+
+function TasteProfile({ taste, source }) {
+  const rows = TASTE_SCALES.filter(([key]) => taste?.[key] != null);
+  if (!rows.length) return null;
+  return (
+    <div className="mx-4 mt-4 rounded-xl bg-white p-3 dark:bg-stone-900">
+      <div className="flex items-baseline justify-between">
+        <p className="text-sm font-medium">Вкусовой профиль</p>
+        <p className="text-[11px] text-stone-400 dark:text-stone-500">{source}</p>
+      </div>
+      <div className="mt-2.5 space-y-3">
+        {rows.map(([key, left, right]) => (
+          <div key={key}>
+            <div className="flex justify-between text-[11px] text-stone-400 dark:text-stone-500">
+              <span>{left}</span>
+              <span>{right}</span>
+            </div>
+            <div className="relative mt-1 h-1 rounded-full bg-stone-200 dark:bg-stone-700">
+              <span
+                className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-wine-600 dark:bg-wine-400"
+                style={{ left: `${taste[key]}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// --- Блок «О винодельне» ------------------------------------------------------
+
+const POSITIONING_LABEL = {
+  massmarket: 'Массмаркет',
+  premium: 'Премиум',
+  boutique: 'Бутик',
+  mixed: 'Смешанный портфель',
+};
+
+function WineryBlock({ wineryId, defaultOpen }) {
+  const winery = useLiveQuery(
+    () => (wineryId ? db.wineries.get(wineryId) : null),
+    [wineryId]
+  );
+  const [open, setOpen] = useState(defaultOpen);
+  if (!winery) return null;
+
+  const loading = winery.infoStatus === 'loading';
+  const opinion = winery.opinion ?? winery.aiSummary;
+  const hasInfo = opinion || winery.regionNote || winery.founded;
+  if (!loading && !hasInfo) return null;
+
+  return (
+    <div className="mx-4 mt-4 rounded-xl bg-white p-3 dark:bg-stone-900">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span className="min-w-0 truncate text-sm font-medium">О винодельне {winery.name}</span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          {winery.positioning && POSITIONING_LABEL[winery.positioning] && (
+            <span className="rounded-full bg-stone-200 px-2 py-0.5 text-[11px] text-stone-700 dark:bg-stone-800 dark:text-stone-300">
+              {POSITIONING_LABEL[winery.positioning]}
+            </span>
+          )}
+          <ChevronDown
+            className={`size-4 text-stone-400 transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-1.5 text-sm text-stone-700 dark:text-stone-300">
+          {loading ? (
+            <p className="animate-pulse text-stone-400 dark:text-stone-500">
+              изучаю винодельню…
+            </p>
+          ) : winery.known === false && !opinion ? (
+            <p>{winery.regionNote ?? 'Об этом хозяйстве пока ничего не известно.'}</p>
+          ) : (
+            <>
+              {(winery.founded || winery.regionNote) && (
+                <p className="text-xs text-stone-500 dark:text-stone-400">
+                  {[winery.founded ? `основана ${winery.founded}` : null, winery.regionNote]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              )}
+              {winery.portfolio && (
+                <p className="text-xs text-stone-500 dark:text-stone-400">{winery.portfolio}</p>
+              )}
+              {opinion && <p>{opinion}</p>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Ручной поиск Vivino в карточке -------------------------------------------
+
+function VivinoInlineSearch({ wine, onDone }) {
+  const [query, setQuery] = useState(
+    [wine.wineryName, wine.name].filter(Boolean).join(' ').trim()
+  );
+  const [busy, setBusy] = useState(false);
+  const [miss, setMiss] = useState(null);
+
+  const search = async () => {
+    setBusy(true);
+    setMiss(null);
+    const res = await lookupVivinoCached(query.trim(), wine.nvFlag ? null : wine.year);
+    setBusy(false);
+    if (res.ok) {
+      const score = matchScore(query, res.data.matchedName);
+      await updateWine(wine.id, {
+        vivino: {
+          ...res.data,
+          matchScore: score,
+          checkedAt: new Date().toISOString(),
+          manual: false,
+        },
+      });
+      onDone?.();
+    } else {
+      setMiss(res.error === 'not_found' ? 'На Vivino не нашлось' : 'Vivino временно недоступен');
+    }
+  };
+
+  return (
+    <div className="mt-2">
+      <div className="flex gap-1.5">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="h-9 w-full rounded-lg border border-stone-200 bg-white px-3 text-sm outline-none focus:border-wine-400 dark:border-stone-700 dark:bg-stone-800"
+          placeholder="winery название сорт"
+        />
+        <button
+          onClick={search}
+          disabled={busy}
+          aria-label="Найти"
+          className="grid size-9 shrink-0 place-items-center rounded-lg bg-wine-600 text-white disabled:opacity-50 dark:bg-wine-400 dark:text-stone-950"
+        >
+          <Search className="size-4" />
+        </button>
+      </div>
+      {busy && <p className="mt-1 animate-pulse text-[11px] text-stone-400">ищу на Vivino…</p>}
+      {miss && <p className="mt-1 text-[11px] text-stone-400">{miss}</p>}
+    </div>
+  );
+}
+
 // --- Экран -------------------------------------------------------------------
 
 export default function WineScreen() {
@@ -121,11 +307,15 @@ export default function WineScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const [toast, setToast] = useState(null);
+  // баннер свежего скана: 'history' | 'cellar' | 'wishlist' | null; гаснет при уходе
+  const [scanBanner, setScanBanner] = useState(null);
+  const [vivinoSearchOpen, setVivinoSearchOpen] = useState(false);
 
-  // тост «Сохранено» после возврата из формы
+  // тост «Сохранено» после возврата из формы / флаг свежего скана
   useEffect(() => {
-    if (location.state?.toast) {
-      setToast(location.state.toast);
+    if (location.state?.toast) setToast(location.state.toast);
+    if (location.state?.scanned) setScanBanner('history');
+    if (location.state) {
       navigate(location.pathname + location.search, { replace: true, state: null });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -224,6 +414,20 @@ export default function WineScreen() {
 
   const price = formatPrice(wine.price, wine.currency);
 
+  const lowConf = (key) => wine.confidence?.[key] === 'low';
+  const taste = vivino?.taste ?? wine.aiReference?.taste_profile ?? null;
+  const tasteSource = vivino?.taste ? 'по данным Vivino' : 'оценка AI';
+  const priceRf = wine.aiReference?.price_rf_estimate;
+  const buyQuery = [wine.wineryName, wine.name, wine.nvFlag ? null : wine.year, 'купить']
+    .filter(Boolean)
+    .join(' ');
+
+  const moveFromBanner = async (target) => {
+    await moveTo(wine.id, target);
+    if (target === 'cellar') await updateWine(wine.id, { quantity: 1 });
+    setScanBanner(target);
+  };
+
   return (
     <div className="flex min-h-dvh flex-col">
       {/* Шапка */}
@@ -260,6 +464,40 @@ export default function WineScreen() {
           </button>
         </div>
       </header>
+
+      {/* Баннер свежего скана */}
+      {scanBanner && (
+        <div className="mx-4 mb-2 rounded-xl bg-emerald-50 p-3 dark:bg-emerald-950">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-emerald-800 dark:text-emerald-200">
+            <Check className="size-4" />
+            {scanBanner === 'history' && 'Распознано и сохранено в Историю'}
+            {scanBanner === 'cellar' && 'В погребе'}
+            {scanBanner === 'wishlist' && 'В Wishlist'}
+          </p>
+          {scanBanner === 'history' && (
+            <div className="mt-2 flex gap-1.5">
+              <button
+                onClick={() => moveFromBanner('cellar')}
+                className="flex-1 rounded-lg bg-wine-600 py-2 text-[13px] font-medium text-white dark:bg-wine-400 dark:text-stone-950"
+              >
+                В погреб
+              </button>
+              <button
+                onClick={() => moveFromBanner('wishlist')}
+                className="flex-1 rounded-lg border border-stone-300 py-2 text-[13px] font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
+              >
+                В Wishlist
+              </button>
+              <button
+                onClick={() => navigate(`/wine/${wine.id}/edit`)}
+                className="flex-1 rounded-lg border border-stone-300 py-2 text-[13px] font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
+              >
+                Изменить
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       <PhotoGallery wine={wine} />
 
@@ -321,26 +559,52 @@ export default function WineScreen() {
               {vivino.matchedName}
             </p>
             <button
-              onClick={() => setToast('Ручной поиск появится вместе со сканом')}
+              onClick={() => setVivinoSearchOpen((v) => !v)}
               className="shrink-0 text-[11px] font-medium text-wine-600 dark:text-wine-400"
             >
               Не то вино?
             </button>
           </div>
+          {vivinoSearchOpen && (
+            <VivinoInlineSearch wine={wine} onDone={() => setVivinoSearchOpen(false)} />
+          )}
+          {vivino.url && (
+            <a
+              href={vivino.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 block text-[13px] font-medium text-wine-600 dark:text-wine-400"
+            >
+              Открыть на Vivino ↗
+            </a>
+          )}
         </div>
       )}
 
+      {/* Vivino ещё не найден у свежесканированного — ручной поиск */}
+      {!vivino && scanBanner && (
+        <div className="mx-4 mt-4 rounded-xl bg-white p-3 dark:bg-stone-900">
+          <p className="text-sm text-stone-500 dark:text-stone-400">Рейтинг Vivino</p>
+          <VivinoInlineSearch wine={wine} />
+        </div>
+      )}
+
+      {/* Вкусовой профиль */}
+      <TasteProfile taste={taste} source={tasteSource} />
+
       {/* Атрибуты */}
       <div className="mx-4 mt-4 grid grid-cols-2 gap-2">
-        <Tile label="Год">{wine.nvFlag ? 'NV' : (wine.year ?? '—')}</Tile>
-        {grapesValue && <Tile label="Сорт">{grapesValue}</Tile>}
+        <Tile label="Год" warn={lowConf('year')}>{wine.nvFlag ? 'NV' : (wine.year ?? '—')}</Tile>
+        {grapesValue && <Tile label="Сорт" warn={lowConf('grapes')}>{grapesValue}</Tile>}
         <Tile label={isWishlist ? 'Статус' : wine.status === 'history' ? 'Статус' : 'В погребе'}>
           {stockValue}
         </Tile>
         <Tile label="Цена" muted={!price}>
           {price ?? 'не указана'}
         </Tile>
-        {wine.alcohol != null && <Tile label="Алкоголь">{wine.alcohol}%</Tile>}
+        {wine.alcohol != null && (
+          <Tile label="Алкоголь" warn={lowConf('alcohol')}>{wine.alcohol}%</Tile>
+        )}
         {wine.notes && (
           <Tile label="Заметки" wide>
             {wine.notes}
@@ -359,15 +623,43 @@ export default function WineScreen() {
               {wine.aiReference.style}
             </p>
           )}
+          {wine.aiReference.verdict && (
+            <div className="mt-2">
+              <p className="text-xs font-medium text-wine-700 dark:text-wine-200">Вердикт</p>
+              <p className="mt-0.5 text-sm text-stone-700 dark:text-stone-300">
+                {wine.aiReference.verdict}
+              </p>
+            </div>
+          )}
           <div className="mt-2 space-y-0.5 text-xs text-stone-600 dark:text-stone-400">
             {wine.aiReference.peak && <p>Пик формы: {wine.aiReference.peak}</p>}
             {wine.aiReference.decant && <p>Декантация: {wine.aiReference.decant}</p>}
             {wine.aiReference.pairing && <p>Пара: {wine.aiReference.pairing}</p>}
+            {priceRf?.from != null && priceRf?.to != null && (
+              <p>
+                Ориентир цены в РФ: {priceRf.from.toLocaleString('ru-RU')}–
+                {priceRf.to.toLocaleString('ru-RU')} ₽ · оценка AI
+                {vivino?.price != null && (
+                  <> · средняя на Vivino ~{vivino.price}{vivino.priceCurrency === 'EUR' ? '€' : ` ${vivino.priceCurrency ?? ''}`}</>
+                )}
+              </p>
+            )}
           </div>
+          <a
+            href={`https://www.google.com/search?q=${encodeURIComponent(buyQuery)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2.5 block rounded-lg border border-wine-200 py-2 text-center text-[13px] font-medium text-wine-700 dark:border-wine-700 dark:text-wine-200"
+          >
+            🛒 Найти, где купить
+          </a>
         </div>
       )}
 
-      {/* Винодельня */}
+      {/* О винодельне (полная справка) */}
+      {wine.wineryId && <WineryBlock wineryId={wine.wineryId} defaultOpen={!!scanBanner} />}
+
+      {/* Винодельня на карте */}
       {wine.wineryId && (
         <button
           onClick={() => setToast('Карта в разработке')}

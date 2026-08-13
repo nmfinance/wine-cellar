@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Camera, RefreshCw, Wine, X } from 'lucide-react';
+import { ArrowLeft, Camera, Wine, X } from 'lucide-react';
+import { db } from '../db.js';
 import { compressImage } from '../utils/image.js';
 import { scanLabel } from '../api/ai.js';
-import { buildVivinoQuery } from '../api/vivino.js';
+import { buildVivinoQuery, lookupVivinoCached } from '../api/vivino.js';
+import { matchScore } from '../api/score.js';
+import { addWine, updateWine } from '../data/wines.js';
+import { ensureWineryInfo } from '../data/wineries.js';
 import { WineForm } from './WineFormScreen.jsx';
 
 const COLOR_MAP = { красное: 'red', белое: 'white', розовое: 'rose', оранжевое: 'orange' };
@@ -99,6 +103,49 @@ export default function ScanScreen() {
     setStep('photo');
   };
 
+  // ok/multiple: вино сразу в Историю (historyReason='scanned') → карточка
+  const saveScannedWine = async (d) => {
+    const initial = s1ToInitialData(d);
+    const ts = new Date().toISOString();
+    const wine = await addWine({
+      ...initial,
+      status: 'history',
+      source: 'scan',
+      historyReason: 'scanned',
+      historyAt: ts,
+      quantity: 0,
+      confidence: d.confidence ?? null,
+    });
+    // фото: первое label, второе back_label
+    await db.photos.bulkAdd(
+      photos.map((p, i) => ({
+        id: crypto.randomUUID(),
+        wineId: wine.id,
+        tastingId: null,
+        blob: p.blob,
+        kind: i === 0 ? 'label' : 'back_label',
+        order: i,
+        createdAt: ts,
+      }))
+    );
+    await ensureWineryInfo(wine); // справка S2 грузится внутри асинхронно
+    // Vivino — асинхронно, карточка подхватит через useLiveQuery
+    if (d.winery || d.name) {
+      const query = buildVivinoQuery(d);
+      lookupVivinoCached(query, initial.year)
+        .then((res) => {
+          if (!res.ok) return;
+          const score = matchScore(query, res.data.matchedName);
+          if (score === 'low') return; // низкий матч не подставляем
+          return updateWine(wine.id, {
+            vivino: { ...res.data, matchScore: score, checkedAt: new Date().toISOString(), manual: false },
+          });
+        })
+        .catch(() => {});
+    }
+    return wine;
+  };
+
   const doScan = async () => {
     setBanner(null);
     setStatusIdx(0);
@@ -113,14 +160,14 @@ export default function ScanScreen() {
         setBanner({ text: 'Это не похоже на винную этикетку' });
         return;
       }
-      const initialData = s1ToInitialData(d);
-      const canLookup = d.status !== 'unreadable' && (d.winery || d.name);
-      setReview({
-        s1: d,
-        initialData,
-        vivinoQuery: canLookup ? buildVivinoQuery(d) : null,
-      });
-      setStep('review');
+      if (d.status === 'unreadable') {
+        // мусор автоматом не сохраняем — форма проверки с частичными полями
+        setReview({ s1: d, initialData: s1ToInitialData(d), vivinoQuery: null });
+        setStep('review');
+        return;
+      }
+      const wine = await saveScannedWine(d);
+      navigate(`/wine/${wine.id}`, { replace: true, state: { scanned: true } });
       return;
     }
 

@@ -52,6 +52,19 @@ function extractJsonObject(text, start) {
   return null;
 }
 
+// Вкусовая структура Vivino (шкала ~1–5, поля nullable) → 0–100
+function normalizeTaste(structure) {
+  if (!structure) return null;
+  const n = (v) => (typeof v === 'number' ? Math.round((v / 5) * 100) : null);
+  const taste = {
+    body: n(structure.intensity),
+    tannin: n(structure.tannin),
+    acidity: n(structure.acidity),
+    sweetness: n(structure.sweetness),
+  };
+  return Object.values(taste).some((v) => v != null) ? taste : null;
+}
+
 function mapVintageMatch(m) {
   const v = m?.vintage;
   if (!v) return null;
@@ -60,6 +73,7 @@ function mapVintageMatch(m) {
     name: v.wine?.name ?? null,
     winery: v.wine?.winery?.name ?? null,
     wineId: v.wine?.id ?? null,
+    taste: normalizeTaste(v.wine?.taste?.structure),
     year: Number(v.year) || null,
     vintageRating: stats.ratings_average || null,
     vintageCount: stats.ratings_count ?? null,
@@ -143,6 +157,7 @@ async function lookupVivino(query, wantYear = null) {
       source: picked.source,
       matchedName: `${m.name}${m.winery ? ` — ${m.winery}` : ''}`,
       matchedYear: picked.matchedYear,
+      taste: m.taste,
       price: m.price,
       priceCurrency: m.price != null ? (data.market?.currency?.code ?? null) : null,
       url: m.wineId ? `https://www.vivino.com/wines/${m.wineId}` : null,

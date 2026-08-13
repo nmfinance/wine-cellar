@@ -1,5 +1,5 @@
 import { AI_URL, APP_KEY } from './config.js';
-import { PROMPT_S1 } from '../ai/prompts.js';
+import { PROMPT_S1, buildPromptS2 } from '../ai/prompts.js';
 
 const blobToBase64 = (blob) =>
   new Promise((resolve, reject) => {
@@ -37,6 +37,21 @@ export async function scanLabel(images, signal = null) {
     return await res.json();
   } catch (err) {
     if (err?.name === 'AbortError' && signal?.aborted) return { ok: false, error: 'cancelled' };
+    return { ok: false, error: navigator.onLine === false ? 'offline' : 'network' };
+  }
+}
+
+// S2: справка о винодельне (текстовый запрос, без фото)
+export async function askWineryInfo({ wineryName, region, country }) {
+  try {
+    const res = await fetch(`${AI_URL}/ai`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-App-Key': APP_KEY },
+      body: JSON.stringify({ kind: 's2', prompt: buildPromptS2({ wineryName, region, country }) }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    return await res.json();
+  } catch {
     return { ok: false, error: navigator.onLine === false ? 'offline' : 'network' };
   }
 }

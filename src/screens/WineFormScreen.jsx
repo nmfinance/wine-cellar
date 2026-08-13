@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, Camera, Minus, Plus, Settings, X } from 'lucide-react';
 import { db } from '../db.js';
 import { addWine, updateWine } from '../data/wines.js';
+import { ensureWineryInfo } from '../data/wineries.js';
 import { listRacks, shelfOccupancy } from '../data/cellar.js';
 import { compressImage } from '../utils/image.js';
 import CellarStructureEditor from '../components/CellarStructureEditor.jsx';
@@ -230,6 +231,7 @@ export function WineForm({
       let wineId;
       if (mode === 'edit') {
         const patch = { ...data };
+        patch.confidence = null; // пользователь проверил поля — рамки и точки гаснут
         if (wine.status === 'cellar') {
           patch.quantity = f.quantity;
           patch.location = f.rackId && f.shelf != null ? { rackId: f.rackId, shelf: f.shelf } : null;
@@ -252,6 +254,7 @@ export function WineForm({
           ...(vivinoRef.current ? { vivino: vivinoRef.current } : {}),
         });
         wineId = rec.id;
+        await ensureWineryInfo(rec); // винодельня + асинхронная справка S2
       }
 
       // ручной рейтинг Vivino (перебивает найденное сканом, сохраняя матч)
@@ -749,6 +752,9 @@ export default function WineFormScreen({ mode }) {
   if (mode === 'edit' && wine === undefined) return null;
   if (mode === 'edit' && wine === null)
     return <p className="mt-10 text-center text-sm text-stone-500">Вино не найдено</p>;
-  // key: форма пере-инициализируется при смене вина
-  return <WineForm key={wine?.id ?? 'new'} mode={mode} wine={wine} />;
+  // key: форма пере-инициализируется при смене вина;
+  // confidence вина (после скана) подсвечивает поля и в edit-режиме
+  return (
+    <WineForm key={wine?.id ?? 'new'} mode={mode} wine={wine} confidence={wine?.confidence ?? null} />
+  );
 }
