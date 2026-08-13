@@ -1,11 +1,13 @@
 import { HashRouter, NavLink, Route, Routes } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from './db.js';
 import OfflineBadge from './components/OfflineBadge.jsx';
 import pkg from '../package.json';
 
 const TABS = [
-  { to: '/', label: 'Погреб', end: true },
-  { to: '/wishlist', label: 'Wishlist' },
-  { to: '/history', label: 'История' },
+  { to: '/', key: 'cellar', label: 'Погреб', end: true },
+  { to: '/wishlist', key: 'wishlist', label: 'Wishlist' },
+  { to: '/history', key: 'history', label: 'История' },
 ];
 
 function Placeholder() {
@@ -19,6 +21,12 @@ function Placeholder() {
 }
 
 export default function App() {
+  const counts = useLiveQuery(async () => ({
+    cellar: await db.wines.where('status').equals('cellar').count(),
+    wishlist: await db.wines.where('status').equals('wishlist').count(),
+    history: await db.wines.where('status').equals('history').count(),
+  }));
+
   return (
     <HashRouter>
       <div className="min-h-dvh bg-stone-50 text-stone-900 dark:bg-stone-950 dark:text-stone-100">
@@ -45,6 +53,7 @@ export default function App() {
                 }
               >
                 {tab.label}
+                {counts ? ` · ${counts[tab.key]}` : ''}
               </NavLink>
             ))}
           </nav>

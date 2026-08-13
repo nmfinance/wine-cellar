@@ -1,0 +1,360 @@
+import { db } from '../db.js';
+
+// Тестовые данные для DEV: заливаются автоматически при старте, если база
+// пуста. В проде (телефон) база стартует пустой — сиды не срабатывают.
+
+const T = '2026-08-01T12:00:00.000Z'; // единый createdAt/updatedAt сидов
+
+const wineryFontanafredda = {
+  id: 'a1000000-0000-4000-8000-000000000001',
+  name: 'Fontanafredda',
+  nameNormalized: 'fontanafredda',
+  region: 'Пьемонт',
+  country: 'Италия',
+  lat: 44.6094,
+  lng: 7.9931,
+  geoStatus: 'ok',
+  aiSummary:
+    'Историческое хозяйство в Серралунга-д’Альба, основано в 1858 году на землях первого короля Италии Виктора Эммануила II. Один из крупнейших производителей Бароло, флагман — крю Serralunga d’Alba. Стиль — классическая выдержка в больших ботти, строгие танинные вина.',
+  known: true,
+  createdAt: T,
+  updatedAt: T,
+};
+
+const rack1 = {
+  id: 'b1000000-0000-4000-8000-000000000001',
+  name: 'Стеллаж в кладовой',
+  order: 1,
+  shelves: [
+    { n: 1, capacity: 12 },
+    { n: 2, capacity: 12 },
+    { n: 3, capacity: 8 },
+  ],
+  createdAt: T,
+  updatedAt: T,
+};
+
+const rack2 = {
+  id: 'b1000000-0000-4000-8000-000000000002',
+  name: 'Винный холодильник',
+  order: 2,
+  shelves: [
+    { n: 1, capacity: 6 },
+    { n: 2, capacity: 6 },
+  ],
+  createdAt: T,
+  updatedAt: T,
+};
+
+const wineDefaults = {
+  historyReason: null,
+  historyAt: null,
+  wineryId: null,
+  nvFlag: false,
+  sweetness: 'dry',
+  sparkling: false,
+  fortified: false,
+  appellation: null,
+  region: null,
+  country: null,
+  alcohol: null,
+  price: null,
+  currency: 'RUB',
+  location: null,
+  locationFreeText: null,
+  vivino: null,
+  aiReference: null,
+  confidence: null,
+  notes: null,
+  createdAt: T,
+  updatedAt: T,
+};
+
+const wines = [
+  {
+    ...wineDefaults,
+    id: 'c1000000-0000-4000-8000-000000000001',
+    status: 'cellar',
+    source: 'scan',
+    name: 'Barolo Serralunga d’Alba',
+    wineryName: 'Fontanafredda',
+    wineryId: wineryFontanafredda.id,
+    year: 2019,
+    color: 'red',
+    grapes: [{ name: 'Неббиоло', percent: 100 }],
+    appellation: 'Barolo DOCG',
+    region: 'Пьемонт',
+    country: 'Италия',
+    alcohol: 14,
+    quantity: 2,
+    price: 4200,
+    location: { rackId: rack1.id, shelf: 2 },
+    vivino: {
+      rating: 4.3,
+      ratingsCount: 3811,
+      source: 'vintage',
+      matchedName: 'Barolo Serralunga d’Alba — Fontanafredda',
+      matchScore: 'high',
+      price: 3900,
+      priceCurrency: 'RUB',
+      checkedAt: T,
+      manual: false,
+    },
+    aiReference: {
+      style:
+        'Классическое Бароло из Серралунги: строгое, танинное, с ароматами вишни, розы, дёгтя и лакрицы. С возрастом — кожа, табак, сушёные травы.',
+      peak: '2027–2035',
+      decant: '1–2 часа',
+      pairing: 'Бразато, дичь, выдержанные твёрдые сыры.',
+    },
+    confidence: { name: 'high', winery: 'high', year: 'high', color: 'high', grapes: 'high' },
+  },
+  {
+    ...wineDefaults,
+    id: 'c1000000-0000-4000-8000-000000000002',
+    status: 'cellar',
+    source: 'scan',
+    name: 'Gewürztraminer',
+    wineryName: 'Trimbach',
+    year: 2021,
+    color: 'white',
+    grapes: [{ name: 'Гевюрцтраминер', percent: 100 }],
+    appellation: 'Alsace AOC',
+    region: 'Эльзас',
+    country: 'Франция',
+    alcohol: 13.5,
+    quantity: 1,
+    price: 3100,
+    location: { rackId: rack2.id, shelf: 1 },
+    vivino: {
+      rating: 4.1,
+      ratingsCount: 5214,
+      source: 'all_vintages',
+      matchedName: 'Gewurztraminer — Trimbach',
+      matchScore: 'high',
+      price: 2800,
+      priceCurrency: 'RUB',
+      checkedAt: T,
+      manual: false,
+    },
+    aiReference: {
+      style:
+        'Ароматный сухой гевюрцтраминер: личи, роза, специи, цедра. Плотное тело при умеренной кислотности.',
+      peak: 'пей сейчас',
+      decant: null,
+      pairing: 'Азиатская кухня, пряные блюда, мюнстер.',
+    },
+  },
+  {
+    ...wineDefaults,
+    id: 'c1000000-0000-4000-8000-000000000003',
+    status: 'history',
+    source: 'manual',
+    historyReason: 'drunk',
+    historyAt: '2026-06-20T20:00:00.000Z',
+    name: 'Barolo',
+    wineryName: 'Fontanafredda',
+    wineryId: wineryFontanafredda.id,
+    year: 2020,
+    color: 'red',
+    grapes: [{ name: 'Неббиоло', percent: 100 }],
+    appellation: 'Barolo DOCG',
+    region: 'Пьемонт',
+    country: 'Италия',
+    alcohol: 14,
+    quantity: 0,
+    price: 3600,
+  },
+  {
+    ...wineDefaults,
+    id: 'c1000000-0000-4000-8000-000000000004',
+    status: 'history',
+    source: 'manual',
+    historyReason: 'drunk',
+    historyAt: '2026-05-02T21:00:00.000Z',
+    name: 'Rioja Crianza',
+    wineryName: 'Bodegas Montecillo',
+    year: 2020,
+    color: 'red',
+    grapes: [{ name: 'Темпранильо', percent: 100 }],
+    appellation: 'Rioja DOCa',
+    region: 'Риоха',
+    country: 'Испания',
+    alcohol: 13.5,
+    quantity: 0,
+    price: 1500,
+  },
+  {
+    ...wineDefaults,
+    id: 'c1000000-0000-4000-8000-000000000005',
+    status: 'wishlist',
+    source: 'winelist',
+    name: 'Riesling Roche Calcaire',
+    wineryName: 'Zind-Humbrecht',
+    year: 2022,
+    color: 'white',
+    grapes: [{ name: 'Рислинг', percent: 100 }],
+    appellation: 'Alsace AOC',
+    region: 'Эльзас',
+    country: 'Франция',
+    quantity: 0,
+  },
+  {
+    ...wineDefaults,
+    id: 'c1000000-0000-4000-8000-000000000006',
+    status: 'history',
+    source: 'scan',
+    historyReason: 'scanned',
+    historyAt: '2026-07-11T18:30:00.000Z',
+    name: 'Whispering Angel Rosé',
+    wineryName: 'Château d’Esclans',
+    year: 2023,
+    color: 'rose',
+    grapes: [
+      { name: 'Гренаш', percent: null },
+      { name: 'Сенсо', percent: null },
+      { name: 'Роль', percent: null },
+    ],
+    appellation: 'Côtes de Provence AOC',
+    region: 'Прованс',
+    country: 'Франция',
+    quantity: 0,
+  },
+];
+
+const tastings = [
+  {
+    id: 'd1000000-0000-4000-8000-000000000001',
+    wineId: wines[0].id,
+    date: '2026-06-15T19:30:00.000Z',
+    place: 'home',
+    decantMinutes: 90,
+    colorNote: { hue: '#6e1f2a', hueName: 'гранатовый', intensity: 72, clarity: 'clear' },
+    aromas: ['вишня', 'роза', 'дёготь', 'лакрица', 'кожа'],
+    aromaIntensity: 70,
+    taste: { sweetness: 5, acidity: 78, tannins: 85, body: 80, balance: 82 },
+    notesNow: 'Строгий, глубокий, танины плотные, но уже гладкие. Очень длинное послевкусие.',
+    aerationNotes: 'Через час раскрылась роза и специи, танины смягчились.',
+    aerationPending: false,
+    aiQuestions: [
+      {
+        question: 'Попробуй поймать классическую пару Бароло — розу и дёготь. Что из этого ярче?',
+        answer: 'Дёготь ярче, роза появилась после аэрации',
+      },
+      {
+        question: 'Сравни танины с прошлым небиолло: жёстче или мягче?',
+        answer: 'Мягче, чем ожидал от Серралунги',
+      },
+    ],
+    aiOpinion: {
+      score: 8.3,
+      verdict: 'match',
+      comment: 'Записи подробные и восторженные — высокая оценка выглядит обоснованной.',
+    },
+    scores: { appearance: 1.4, nose: 2.6, taste: 2.5, finish: 1.3, overall: 0.7 },
+    totalScore: 8.5,
+    createdAt: '2026-06-15T21:00:00.000Z',
+    updatedAt: '2026-06-15T21:00:00.000Z',
+  },
+  {
+    id: 'd1000000-0000-4000-8000-000000000002',
+    wineId: wines[0].id,
+    date: '2026-07-20T20:00:00.000Z',
+    place: 'guests',
+    decantMinutes: 30,
+    colorNote: { hue: '#6e1f2a', hueName: 'гранатовый', intensity: 70, clarity: 'clear' },
+    aromas: ['вишня', 'специи', 'табак'],
+    aromaIntensity: 55,
+    taste: { sweetness: 5, acidity: 75, tannins: 88, body: 78, balance: 65 },
+    notesNow: 'Без длинной аэрации закрытое, танины угловатые. В гостях декантера не было.',
+    aerationNotes: null,
+    aerationPending: false,
+    aiQuestions: [
+      {
+        question: 'В прошлый раз тебе помогла аэрация — чувствуешь разницу без неё?',
+        answer: 'Да, вино заметно закрытое',
+      },
+    ],
+    aiOpinion: {
+      score: 7.2,
+      verdict: 'match',
+      comment: 'Заметки сдержанные, баллы средние — согласовано; вину не хватило воздуха.',
+    },
+    scores: { appearance: 1.4, nose: 2.0, taste: 2.2, finish: 1.0, overall: 0.4 },
+    totalScore: 7.0,
+    createdAt: '2026-07-20T22:00:00.000Z',
+    updatedAt: '2026-07-20T22:00:00.000Z',
+  },
+  {
+    id: 'd1000000-0000-4000-8000-000000000003',
+    wineId: wines[2].id,
+    date: '2026-06-20T20:00:00.000Z',
+    place: 'home',
+    decantMinutes: 60,
+    colorNote: { hue: '#79242e', hueName: 'рубиновый', intensity: 65, clarity: 'clear' },
+    aromas: ['вишня', 'малина', 'фиалка'],
+    aromaIntensity: 60,
+    taste: { sweetness: 8, acidity: 72, tannins: 70, body: 68, balance: 70 },
+    notesNow: 'Молодое, ягодное, проще 2019-го, но питкое.',
+    aerationNotes: 'Час в декантере — стало заметно дружелюбнее.',
+    aerationPending: false,
+    aiQuestions: [
+      {
+        question: 'Молодое Бароло часто пахнет ягодами, а не дёгтем. Что слышишь в бокале?',
+        answer: 'Именно ягоды: вишня и малина',
+      },
+    ],
+    aiOpinion: {
+      score: 7.0,
+      verdict: 'match',
+      comment: 'Оценка совпадает с ощущением «просто и питко» из заметок.',
+    },
+    scores: { appearance: 1.3, nose: 2.1, taste: 2.2, finish: 0.9, overall: 0.5 },
+    totalScore: 7.0,
+    createdAt: '2026-06-20T22:00:00.000Z',
+    updatedAt: '2026-06-20T22:00:00.000Z',
+  },
+  {
+    id: 'd1000000-0000-4000-8000-000000000004',
+    wineId: wines[3].id,
+    date: '2026-05-02T21:00:00.000Z',
+    place: 'restaurant',
+    decantMinutes: null,
+    colorNote: { hue: '#8a2f36', hueName: 'вишнёвый', intensity: 55, clarity: 'semi' },
+    aromas: ['ваниль', 'ежевика'],
+    aromaIntensity: 40,
+    taste: { sweetness: 15, acidity: 55, tannins: 45, body: 50, balance: 35 },
+    notesNow: 'Плоско, много бочки, мало фрукта. Разочарование.',
+    aerationNotes: null,
+    aerationPending: false,
+    aiQuestions: [
+      {
+        question: 'Крианса — это год в бочке. Чувствуешь ваниль и кокос от американского дуба?',
+        answer: 'Ваниль забивает всё остальное',
+      },
+    ],
+    aiOpinion: {
+      score: 4.5,
+      verdict: 'match',
+      comment: 'Критичные заметки и низкие баллы согласованы.',
+    },
+    scores: { appearance: 0.9, nose: 1.1, taste: 1.2, finish: 0.5, overall: 0.3 },
+    totalScore: 4.0,
+    createdAt: '2026-05-02T23:00:00.000Z',
+    updatedAt: '2026-05-02T23:00:00.000Z',
+  },
+];
+
+export async function seedIfEmpty() {
+  const count = await db.wines.count();
+  if (count > 0) return false;
+  await db.transaction('rw', [db.wines, db.tastings, db.wineries, db.racks, db.meta], async () => {
+    await db.wineries.add(wineryFontanafredda);
+    await db.racks.bulkAdd([rack1, rack2]);
+    await db.wines.bulkAdd(wines);
+    await db.tastings.bulkAdd(tastings);
+    await db.meta.put({ key: 'seededAt', value: new Date().toISOString() });
+  });
+  console.debug('[seed] залиты тестовые данные:', wines.length, 'вин');
+  return true;
+}
