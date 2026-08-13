@@ -4,6 +4,14 @@ compatibility_date = "2026-08-01"
 
 # секреты (wrangler secret put): GEMINI_API_KEY, APP_KEY
 [vars]
-# П9.5: gemini-2.5-flash недоступна новым ключам; alias flash-latest вёл на
-# перегруженную 3.6/3.7 (503 на фото) — пиним проверенную стабильную
-GEMINI_MODEL = "gemini-3.5-flash"
+# Цепочка моделей (порядок = приоритет), каждая проверена фото-запросом (P9.5/9.6).
+# Free tier: 20 запросов/день НА модель — цепочка даёт суммарный запас.
+# Вне цепочки: 2.5-* (404 новым ключам), 3.7-flash (ловила 503 перегруз),
+# pro-модели (дорогие prepay-кредиты).
+GEMINI_MODELS = "gemini-3.5-flash,gemini-3.6-flash,gemini-3.5-flash-lite"
+# наш собственный дневной стоп-кран (не гуглов), счётчик в POGREB_LIMITS
+DAILY_HARD_CAP = "100"
+
+[[kv_namespaces]]
+binding = "POGREB_LIMITS"
+id = "d97e904fccba4c2a896334162c9ad23b"
