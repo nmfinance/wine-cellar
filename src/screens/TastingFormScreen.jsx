@@ -4,11 +4,13 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Camera, Copy, X } from 'lucide-react';
 import { db } from '../db.js';
 import { addTasting } from '../data/tastings.js';
+import { drinkBottle } from '../data/wines.js';
 import { AROMA_SETS, addCustomAromas, getCustomAromas } from '../data/aromas.js';
 import { compressImage } from '../utils/image.js';
 import { scoreBadgeClasses } from '../theme.js';
 import Slider from '../components/Slider.jsx';
 import Toast from '../components/Toast.jsx';
+import VoiceInput from '../components/VoiceInput.jsx';
 
 // Палитры оттенков по типу вина: [hex, название]
 const HUE_SETS = {
@@ -156,6 +158,7 @@ export default function TastingFormScreen() {
   const [scoreOverall, setScoreOverall] = useState(0.7);
   const [aerationPending, setAerationPending] = useState(false);
   const [touched, setTouched] = useState({}); // {1..5: true}
+  const [writeOff, setWriteOff] = useState(null); // {tasting, quantity} — диалог списания
   const fileRef = useRef(null);
 
   const color = wine?.color ?? 'red';
@@ -249,6 +252,15 @@ export default function TastingFormScreen() {
         (a) => !baseAromas.includes(a) && !customPool.includes(a)
       );
       await addCustomAromas(color, custom);
+
+      // Списание бутылки: только для cellar-вина с бутылками
+      // и не в ресторане (там очевидно не из погреба)
+      const fresh = await db.wines.get(wine.id);
+      const placeVal = prep.place === 'custom' ? prep.customPlace.trim() : prep.place;
+      if (fresh.status === 'cellar' && fresh.quantity >= 1 && placeVal !== 'restaurant') {
+        setWriteOff({ tasting, quantity: fresh.quantity });
+        return;
+      }
       navigate(`/wine/${wine.id}`, {
         replace: true,
         state: { toast: `Дегустация сохранена · ${tasting.totalScore.toFixed(1)}` },
@@ -256,6 +268,16 @@ export default function TastingFormScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const finishWriteOff = async (doDrink) => {
+    const { tasting } = writeOff;
+    let toastText = `Дегустация сохранена · ${tasting.totalScore.toFixed(1)}`;
+    if (doDrink) {
+      const updated = await drinkBottle(wine.id);
+      if (updated.status === 'history') toastText = 'Вино в Истории со всеми дегустациями';
+    }
+    navigate(`/wine/${wine.id}`, { replace: true, state: { toast: toastText } });
   };
 
   const scoreRows = [
@@ -509,12 +531,11 @@ export default function TastingFormScreen() {
 
         {/* 4 · Сейчас в бокале */}
         <Section title="4 · Сейчас в бокале">
-          <textarea
-            rows={3}
+          <VoiceInput
             value={notesNow}
-            onChange={(e) => { setNotesNow(e.target.value); touch(4); }}
+            onChange={(v) => { setNotesNow(v); touch(4); }}
             placeholder="Что чувствуешь? Пара слов честности..."
-            className="w-full rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm outline-none focus:border-wine-400 dark:border-stone-700 dark:bg-stone-800"
+            onToast={setToast}
           />
           <div className="mt-2 flex items-center gap-2">
             {glassPhoto ? (
@@ -583,6 +604,34 @@ export default function TastingFormScreen() {
           </button>
         </Section>
       </div>
+
+      {/* Диалог списания бутылки */}
+      {writeOff && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-6">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl dark:bg-stone-900">
+            <p className="text-base font-semibold">Бутылка из погреба?</p>
+            <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">
+              {writeOff.quantity === 1
+                ? 'Это последняя — вино переедет в Историю'
+                : `Списать одну? Останется ${writeOff.quantity - 1}`}
+            </p>
+            <div className="mt-3.5 flex gap-2">
+              <button
+                onClick={() => finishWriteOff(true)}
+                className="flex-1 rounded-lg bg-wine-600 py-2.5 text-sm font-medium text-white dark:bg-wine-400 dark:text-stone-950"
+              >
+                Списать −1
+              </button>
+              <button
+                onClick={() => finishWriteOff(false)}
+                className="flex-1 rounded-lg border border-stone-300 py-2.5 text-sm font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
+              >
+                Не списывать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Toast message={toast} onDone={() => setToast(null)} />
     </div>

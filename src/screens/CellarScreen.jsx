@@ -123,6 +123,17 @@ export default function CellarScreen({ tab }) {
     db.meta.put({ key: 'cellarViewMode', value: viewMode === 'grid' ? 'shelves' : 'grid' });
   const racks = useLiveQuery(listRacks);
 
+  // «вино дышит»: pending-дегустация с СЕГОДНЯШНЕЙ датой (старше — поезд ушёл)
+  const breathing = useLiveQuery(async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const t = await db.tastings
+      .filter((x) => x.aerationPending === true && (x.date ?? '').slice(0, 10) === today)
+      .first();
+    if (!t) return null;
+    const w = await db.wines.get(t.wineId);
+    return { tastingId: t.id, wineName: w?.name ?? 'Вино' };
+  });
+
   const q = normalizeName(query);
   const filtersActive = hasActive(filters);
   const shown = wines ?? [];
@@ -250,6 +261,15 @@ export default function CellarScreen({ tab }) {
         />
         <FilterChips filters={filters} onChange={setFilters} />
       </div>
+
+      {breathing && (
+        <Link
+          to={`/tasting/${breathing.tastingId}`}
+          className="mx-4 mt-3 block rounded-lg bg-amber-100 px-3 py-2 text-[13px] text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
+          💨 {breathing.wineName} дышит — дозаполнить дегустацию →
+        </Link>
+      )}
 
       <div className="mt-3">{content}</div>
 

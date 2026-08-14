@@ -866,6 +866,12 @@ export default function WineScreen() {
                     </span>
                     <span className="block text-xs text-stone-400 dark:text-stone-500">
                       {details}
+                      {t.aerationPending && (
+                        <span className="ml-1.5 inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                          <span className="inline-block size-1.5 rounded-full bg-amber-400" />
+                          дозаполнить
+                        </span>
+                      )}
                     </span>
                   </span>
                 </Link>

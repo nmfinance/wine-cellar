@@ -1,9 +1,93 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { ArrowLeft, Trash2 } from 'lucide-react';
+import { ArrowLeft, ChevronDown, Trash2 } from 'lucide-react';
 import { db } from '../db.js';
 import { scoreBadgeClasses } from '../theme.js';
+import Slider from '../components/Slider.jsx';
+import VoiceInput from '../components/VoiceInput.jsx';
+
+const round1 = (n) => Math.round(n * 10) / 10;
+
+// Секция дозаполнения после аэрации: заметка + опциональная корректировка оценок
+function AerationFill({ tasting, onDone }) {
+  const [text, setText] = useState(tasting.aerationNotes ?? '');
+  const [adjustOpen, setAdjustOpen] = useState(false);
+  const [scores, setScores] = useState({ ...tasting.scores });
+  const total = round1(
+    (scores.appearance ?? 0) + (scores.nose ?? 0) + (scores.taste ?? 0) +
+    (scores.finish ?? 0) + (scores.overall ?? 0)
+  );
+  const set = (key, v) => setScores((s) => ({ ...s, [key]: v }));
+
+  const finish = async () => {
+    await db.tastings.update(tasting.id, {
+      aerationNotes: text.trim() || null,
+      aerationPending: false,
+      ...(adjustOpen
+        ? {
+            scores: Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, round1(v)])),
+            totalScore: total,
+          }
+        : {}),
+      updatedAt: new Date().toISOString(),
+    });
+    onDone?.();
+  };
+
+  const rows = [
+    ['appearance', 'Внешний вид', 1.5],
+    ['nose', 'Нос', 3.0],
+    ['taste', 'Вкус', 3.0],
+    ['finish', 'Послевкусие', 1.5],
+    ['overall', 'Впечатление', 1.0],
+  ];
+
+  return (
+    <div className="mx-4 rounded-xl bg-white p-3.5 dark:bg-stone-900">
+      <h2 className="mb-2 text-sm font-semibold">После аэрации</h2>
+      <VoiceInput
+        value={text}
+        onChange={setText}
+        placeholder="Что изменилось? Мягче? Открылись новые ноты?"
+      />
+      <button
+        type="button"
+        onClick={() => setAdjustOpen((v) => !v)}
+        className="mt-2 flex items-center gap-1 text-[13px] font-medium text-wine-600 dark:text-wine-400"
+      >
+        Скорректировать итоговую оценку
+        <ChevronDown className={`size-3.5 transition-transform ${adjustOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {adjustOpen && (
+        <div className="mt-1">
+          {rows.map(([key, label, max]) => (
+            <Slider
+              key={key}
+              kind="score"
+              label={label}
+              value={scores[key] ?? 0}
+              onChange={(v) => set(key, v)}
+              min={0}
+              max={max}
+              step={0.05}
+              valueText={`${round1(scores[key] ?? 0).toFixed(1)}/${max.toFixed(1)}`}
+            />
+          ))}
+          <p className="mt-1 text-right text-sm font-semibold">
+            Итог: <span className={`rounded-full px-2 py-0.5 ${scoreBadgeClasses(total)}`}>{total.toFixed(1)}</span>
+          </p>
+        </div>
+      )}
+      <button
+        onClick={finish}
+        className="mt-3 w-full rounded-lg bg-wine-600 py-2.5 text-sm font-medium text-white dark:bg-wine-400 dark:text-stone-950"
+      >
+        Готово
+      </button>
+    </div>
+  );
+}
 
 const PLACE_LABEL = { home: 'дома', restaurant: 'в ресторане', guests: 'в гостях' };
 const CLARITY_LABEL = { clear: 'прозрачное', semi: 'полупрозрачное', hazy: 'мутное' };
@@ -58,6 +142,7 @@ export default function TastingScreen() {
     [tasting?.wineId]
   );
   const [glassUrl, setGlassUrl] = useState(null);
+  const [fillOpen, setFillOpen] = useState(false);
   const glassPhoto = useLiveQuery(
     () =>
       db.photos
@@ -120,6 +205,30 @@ export default function TastingScreen() {
           {tasting.decantMinutes > 0 && <> · 💨 {tasting.decantMinutes} мин</>}
         </p>
       </div>
+
+      {/* Дозаполнение после аэрации */}
+      {tasting.aerationPending && !fillOpen && (
+        <div className="mx-4 rounded-xl bg-amber-100 p-3 dark:bg-amber-950">
+          <p className="text-sm text-amber-800 dark:text-amber-200">
+            💨 Вино дышит ({tasting.decantMinutes ?? '—'} мин декантации) — вернись и допиши,
+            как оно раскрылось
+          </p>
+          <button
+            onClick={() => setFillOpen(true)}
+            className="mt-2 w-full rounded-lg bg-amber-500 py-2 text-[13px] font-medium text-white dark:bg-amber-600"
+          >
+            Дописать сейчас
+          </button>
+        </div>
+      )}
+      {tasting.aerationPending && fillOpen && (
+        <AerationFill tasting={tasting} onDone={() => setFillOpen(false)} />
+      )}
+      {!tasting.aerationPending && tasting.aerationNotes && (
+        <Card title="После аэрации">
+          <p className="text-sm text-stone-700 dark:text-stone-300">{tasting.aerationNotes}</p>
+        </Card>
+      )}
 
       {tasting.colorNote && (
         <Card title="Цвет">
