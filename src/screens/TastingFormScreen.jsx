@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Camera, Copy, X } from 'lucide-react';
 import { db } from '../db.js';
@@ -138,7 +138,19 @@ export default function TastingFormScreen() {
 
   // --- стейт опросника -------------------------------------------------------
   const today = new Date().toISOString().slice(0, 10);
-  const [prep, setPrep] = useState({ date: today, place: 'home', customPlace: '', decant: 0 });
+  // предустановка места (из винной карты: «Ресторан» или его название)
+  const location = useLocation();
+  const presetPlace = location.state?.place ?? null;
+  const [prep, setPrep] = useState({
+    date: today,
+    place: presetPlace
+      ? ['home', 'restaurant', 'guests'].includes(presetPlace)
+        ? presetPlace
+        : 'custom'
+      : 'home',
+    customPlace: presetPlace && !['home', 'restaurant', 'guests'].includes(presetPlace) ? presetPlace : '',
+    decant: 0,
+  });
   const [prepOpen, setPrepOpen] = useState(true);
   const [hue, setHue] = useState(null); // [hex, name]
   const [colorIntensity, setColorIntensity] = useState(70);

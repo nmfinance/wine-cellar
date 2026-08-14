@@ -295,6 +295,15 @@ export default function CellarScreen({ tab }) {
           >
             ✍️ Вручную
           </button>
+          <button
+            onClick={() => {
+              setAddSheetOpen(false);
+              navigate('/winelist');
+            }}
+            className="rounded-lg px-3 py-3 text-left text-[15px] hover:bg-stone-100 dark:hover:bg-stone-800"
+          >
+            📋 Винная карта ресторана
+          </button>
         </div>
       </BottomSheet>
 
