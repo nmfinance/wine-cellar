@@ -8,7 +8,7 @@ import CellarSettingsScreen from './screens/CellarSettingsScreen.jsx';
 import BackupScreen from './screens/BackupScreen.jsx';
 import ScanScreen from './screens/ScanScreen.jsx';
 import SettingsScreen from './screens/SettingsScreen.jsx';
-import StubScreen from './screens/StubScreen.jsx';
+import StatsScreen from './screens/StatsScreen.jsx';
 import TastingScreen from './screens/TastingScreen.jsx';
 import TastingFormScreen from './screens/TastingFormScreen.jsx';
 import WineFormScreen from './screens/WineFormScreen.jsx';
@@ -33,7 +33,7 @@ export default function App() {
             <Route path="/tasting/:id" element={<TastingScreen />} />
             <Route path="/winelist" element={<WineListScreen />} />
             <Route path="/winelist/:id" element={<WineListResultScreen />} />
-            <Route path="/stats" element={<StubScreen title="Статистика" />} />
+            <Route path="/stats" element={<StatsScreen />} />
             <Route
               path="/map"
               element={

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Wine } from 'lucide-react';
 import { db } from '../db.js';
+import { getScoreMode, wineScore } from '../data/settings.js';
 import { PLACEHOLDER_BY_COLOR, formatPrice, scoreBadgeClasses } from '../theme.js';
 
 const darkBadge =
@@ -21,13 +22,9 @@ export default function WineCard({ wine }) {
         .then((p) => p ?? null),
     [wine.id]
   );
-  const lastTasting = useLiveQuery(
-    () =>
-      db.tastings
-        .where('wineId')
-        .equals(wine.id)
-        .sortBy('date')
-        .then((arr) => arr.at(-1) ?? null),
+  // «моя оценка» по выбранному в настройках режиму (последняя/лучшая/средняя)
+  const score = useLiveQuery(
+    async () => wineScore(wine, await getScoreMode()),
     [wine.id]
   );
 
@@ -76,12 +73,12 @@ export default function WineCard({ wine }) {
           <span className={`absolute top-1.5 right-1.5 ${darkBadge}`}>{price}</span>
         )}
 
-        {lastTasting !== undefined &&
-          (lastTasting ? (
+        {score !== undefined &&
+          (score != null ? (
             <span
-              className={`absolute bottom-1.5 left-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${scoreBadgeClasses(lastTasting.totalScore)}`}
+              className={`absolute bottom-1.5 left-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${scoreBadgeClasses(score)}`}
             >
-              {lastTasting.totalScore.toFixed(1)}
+              {score.toFixed(1)}
             </span>
           ) : (
             <span className="absolute bottom-1.5 left-1.5 rounded-full border border-dashed border-white/80 bg-black/30 px-2 py-0.5 text-[10px] text-white">

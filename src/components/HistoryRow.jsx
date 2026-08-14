@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Wine } from 'lucide-react';
 import { db } from '../db.js';
 import { moveTo, updateWine } from '../data/wines.js';
+import { getScoreMode, wineScore } from '../data/settings.js';
 import { PLACEHOLDER_BY_COLOR, scoreBadgeClasses } from '../theme.js';
 import { pluralize } from '../utils/plural.js';
 
@@ -27,6 +28,10 @@ export default function HistoryRow({ wine, onBought }) {
   );
   const tastings = useLiveQuery(
     () => db.tastings.where('wineId').equals(wine.id).sortBy('date'),
+    [wine.id]
+  );
+  const score = useLiveQuery(
+    async () => wineScore(wine, await getScoreMode()),
     [wine.id]
   );
 
@@ -97,11 +102,13 @@ export default function HistoryRow({ wine, onBought }) {
       </span>
       {tastings !== undefined &&
         (last ? (
-          <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${scoreBadgeClasses(last.totalScore)}`}
-          >
-            {last.totalScore.toFixed(1)}
-          </span>
+          score != null && (
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${scoreBadgeClasses(score)}`}
+            >
+              {score.toFixed(1)}
+            </span>
+          )
         ) : (
           <button
             onClick={buy}

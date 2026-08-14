@@ -102,6 +102,12 @@ export default function TasteProfileSheet({ open, onClose }) {
                 <p className="mt-1 text-sm text-stone-700 dark:text-stone-300">
                   {d.topAromas.join(' · ')}
                 </p>
+                {/* ароматы попадают в подстановку только внутри строки «Любит» */}
+                {d.loves.length === 0 && (
+                  <p className="mt-1 text-[11px] text-stone-400 dark:text-stone-500">
+                    наблюдение · пока не участвует в рекомендациях
+                  </p>
+                )}
               </Section>
             )}
             {d.budget && (

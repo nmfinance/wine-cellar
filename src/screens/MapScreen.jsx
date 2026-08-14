@@ -5,6 +5,7 @@ import { Map as MapLibreMap, Marker as MapLibreMarker } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { ArrowLeft, MapPinned, Navigation } from 'lucide-react';
 import { db } from '../db.js';
+import { getScoreMode, wineScore } from '../data/settings.js';
 import { scoreBadgeClasses } from '../theme.js';
 import { pluralize } from '../utils/plural.js';
 import WineryBlock from '../components/WineryBlock.jsx';
@@ -58,20 +59,31 @@ export default function MapScreen() {
   const [refining, setRefining] = useState(null); // {id, mode:'refine'|'place'}
   const swipeRef = useRef(null);
 
-  // винодельни с координатами и хотя бы одной дегустацией их вин
+  // винодельни с координатами и хотя бы одной дегустацией их вин;
+  // оценка точки — из wineScore по режиму настроек: «Лучшая» — максимум
+  // по винам, иначе — среднее по винам
   const points = useLiveQuery(async () => {
+    const mode = await getScoreMode();
     const wineries = await db.wineries
       .filter((w) => w.lat != null && w.lng != null)
       .toArray();
     const result = [];
     for (const winery of wineries) {
       const wines = await db.wines.filter((x) => x.wineryId === winery.id).toArray();
-      const wineIds = wines.map((x) => x.id);
-      const tastings = await db.tastings.filter((t) => wineIds.includes(t.wineId)).toArray();
-      if (!tastings.length) continue;
-      const avg = tastings.reduce((a, t) => a + (t.totalScore ?? 0), 0) / tastings.length;
-      const tastedIds = new Set(tastings.map((t) => t.wineId));
-      result.push({ winery, wines, avg: Math.round(avg * 10) / 10, tastedCount: tastedIds.size });
+      const wineScores = (
+        await Promise.all(wines.map((w) => wineScore(w, mode)))
+      ).filter((s) => s != null);
+      if (!wineScores.length) continue;
+      const avg =
+        mode === 'best'
+          ? Math.max(...wineScores)
+          : wineScores.reduce((a, b) => a + b, 0) / wineScores.length;
+      result.push({
+        winery,
+        wines,
+        avg: Math.round(avg * 10) / 10,
+        tastedCount: wineScores.length,
+      });
     }
     return result;
   });
@@ -92,7 +104,8 @@ export default function MapScreen() {
 
   // --- карта: создаётся один раз, слои перевешиваются на каждый style.load ---
   useEffect(() => {
-    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    // эффективная тема = класс .dark на <html> (учитывает настройку «Тема»)
+    const dark = document.documentElement.classList.contains('dark');
     const map = new MapLibreMap({
       container: containerRef.current,
       style: dark ? DARK_STYLE : LIGHT_STYLE,
@@ -188,15 +201,14 @@ export default function MapScreen() {
     map.on('mouseenter', 'points', () => (map.getCanvas().style.cursor = 'pointer'));
     map.on('mouseleave', 'points', () => (map.getCanvas().style.cursor = ''));
 
-    // переключение темы вживую
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    // переключение темы вживую: событие от applyTheme (настройка или ОС)
     const onTheme = (ev) => {
-      if (!fellBack) map.setStyle(ev.matches ? DARK_STYLE : LIGHT_STYLE);
+      if (!fellBack) map.setStyle(ev.detail.dark ? DARK_STYLE : LIGHT_STYLE);
     };
-    mq.addEventListener('change', onTheme);
+    window.addEventListener('themechange', onTheme);
 
     return () => {
-      mq.removeEventListener('change', onTheme);
+      window.removeEventListener('themechange', onTheme);
       markerRef.current?.remove();
       map.remove();
     };

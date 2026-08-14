@@ -21,6 +21,7 @@ import { lookupVivinoCached, refreshVivino } from '../api/vivino.js';
 import { matchScore } from '../api/score.js';
 import { ensureDeepInfo } from '../data/deep.js';
 import { refreshWineryInfo } from '../data/wineries.js';
+import { getScoreMode } from '../data/settings.js';
 import { PLACEHOLDER_BY_COLOR, formatPrice, scoreBadgeClasses } from '../theme.js';
 import PhotoLightbox from '../components/PhotoLightbox.jsx';
 import Toast from '../components/Toast.jsx';
@@ -327,6 +328,7 @@ export default function WineScreen() {
   }, []);
 
   const wine = useLiveQuery(() => db.wines.get(id).then((w) => w ?? null), [id]);
+  const scoreMode = useLiveQuery(getScoreMode) ?? 'last';
   const tastings = useLiveQuery(
     () =>
       db.tastings
@@ -380,6 +382,16 @@ export default function WineScreen() {
   }
 
   const lastTasting = tastings?.[0] ?? null;
+  // «моя оценка» по режиму из настроек; tastings отсортированы date desc,
+  // поэтому «последняя» — tastings[0]
+  const scores = (tastings ?? []).map((t) => t.totalScore ?? 0);
+  const myScore = !scores.length
+    ? null
+    : scoreMode === 'best'
+      ? Math.max(...scores)
+      : scoreMode === 'avg'
+        ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10
+        : (lastTasting?.totalScore ?? 0);
   const isWishlist = wine.status === 'wishlist';
 
   const onHeart = () => moveTo(wine.id, isWishlist ? 'cellar' : 'wishlist');
@@ -554,11 +566,11 @@ export default function WineScreen() {
         )}
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
           {tastings !== undefined &&
-            (lastTasting ? (
+            (myScore != null ? (
               <span
-                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${scoreBadgeClasses(lastTasting.totalScore)}`}
+                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${scoreBadgeClasses(myScore)}`}
               >
-                Моя {lastTasting.totalScore.toFixed(1)}
+                Моя {myScore.toFixed(1)}
               </span>
             ) : (
               <span className="rounded-full border border-dashed border-stone-400 px-2.5 py-1 text-xs text-stone-500 dark:border-stone-500 dark:text-stone-400">

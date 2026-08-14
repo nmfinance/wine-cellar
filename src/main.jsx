@@ -6,6 +6,7 @@ import { db } from './db.js';
 import { seedIfEmpty } from './data/seed.js';
 import { maybeAutoBackup } from './data/backup.js';
 import { backfillGeocode } from './data/wineries.js';
+import { initTheme } from './data/settings.js';
 import './index.css';
 
 // ?debug=1 → мобильная панель DevTools (eruda) отдельным чанком, по требованию
@@ -18,6 +19,8 @@ registerSW({ immediate: true });
 db.open()
   .then(async () => {
     console.debug(`[db] pogreb открыта, версия схемы ${db.verno}`);
+    // тема из meta (или системная) — до первого рендера контента
+    initTheme();
     // автобэкап на Яндекс.Диск (тихий, раз в сутки, только с токеном и онлайн)
     setTimeout(() => maybeAutoBackup(), 3000);
     // доборка геокодинга (отложенные офлайном + самолечение старых записей)

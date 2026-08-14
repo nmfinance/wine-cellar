@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Wine } from 'lucide-react';
 import { db } from '../db.js';
+import { getScoreMode, wineScore } from '../data/settings.js';
 import { PLACEHOLDER_BY_COLOR, scoreBadgeClasses } from '../theme.js';
 
 // Компактная строка вина для режима «По полкам»
@@ -17,13 +18,8 @@ export default function WineRow({ wine, subtitle }) {
         .then((p) => p ?? null),
     [wine.id]
   );
-  const lastTasting = useLiveQuery(
-    () =>
-      db.tastings
-        .where('wineId')
-        .equals(wine.id)
-        .sortBy('date')
-        .then((arr) => arr.at(-1) ?? null),
+  const score = useLiveQuery(
+    async () => wineScore(wine, await getScoreMode()),
     [wine.id]
   );
 
@@ -68,12 +64,12 @@ export default function WineRow({ wine, subtitle }) {
           </span>
         )}
       </span>
-      {lastTasting !== undefined &&
-        (lastTasting ? (
+      {score !== undefined &&
+        (score != null ? (
           <span
-            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${scoreBadgeClasses(lastTasting.totalScore)}`}
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${scoreBadgeClasses(score)}`}
           >
-            {lastTasting.totalScore.toFixed(1)}
+            {score.toFixed(1)}
           </span>
         ) : (
           <span className="shrink-0 rounded-full border border-dashed border-stone-300 px-2 py-0.5 text-[10px] text-stone-400 dark:border-stone-600">
