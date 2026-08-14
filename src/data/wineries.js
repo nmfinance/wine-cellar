@@ -1,6 +1,7 @@
 import { db } from '../db.js';
 import { normalizeName } from './normalize.js';
 import { askWineryInfo } from '../api/ai.js';
+import { geocodeWinery } from '../api/geocode.js';
 
 const now = () => new Date().toISOString();
 
@@ -72,6 +73,58 @@ async function fillWineryInfo(winery) {
     updatedAt: now(),
   });
   console.debug('[winery] справка сохранена:', winery.name);
+}
+
+// Гео-фаза (P17): координаты при первой дегустации вин винодельни.
+// Успех → тост через событие; офлайн → needsGeocode для фоновой доборки.
+export async function ensureWineryGeo(wineryId) {
+  const winery = await db.wineries.get(wineryId);
+  if (!winery || winery.lat != null) return;
+  if (navigator.onLine === false) {
+    await db.wineries.update(wineryId, { needsGeocode: true, updatedAt: now() });
+    console.debug('[geo] офлайн — отложено:', winery.name);
+    return;
+  }
+  const geo = await geocodeWinery(winery);
+  if (geo) {
+    await db.wineries.update(wineryId, {
+      lat: geo.lat,
+      lng: geo.lng,
+      geoStatus: geo.precision,
+      needsGeocode: false,
+      geoTriedAt: now(),
+      updatedAt: now(),
+    });
+    // ненавязчивый тост, если пользователь ещё в приложении
+    window.dispatchEvent(
+      new CustomEvent('winery-geocoded', { detail: { name: winery.name } })
+    );
+  } else {
+    await db.wineries.update(wineryId, {
+      geoStatus: 'manual_needed',
+      needsGeocode: false,
+      geoTriedAt: now(),
+      updatedAt: now(),
+    });
+  }
+}
+
+// Фоновая доборка при старте: отложенные (needsGeocode) + самолечение старых
+// записей без координат с дегустациями (если ещё не пробовали геокодить)
+export async function backfillGeocode() {
+  if (navigator.onLine === false) return;
+  const candidates = await db.wineries.filter((w) => w.lat == null).toArray();
+  for (const winery of candidates) {
+    if (!winery.needsGeocode) {
+      if (winery.geoTriedAt) continue; // уже пробовали — не долбим Nominatim
+      const wineIds = (await db.wines.filter((x) => x.wineryId === winery.id).toArray()).map(
+        (x) => x.id
+      );
+      const tasted = await db.tastings.filter((t) => wineIds.includes(t.wineId)).count();
+      if (!tasted) continue;
+    }
+    await ensureWineryGeo(winery.id);
+  }
 }
 
 // «Обновить справку»: повторный S2 с перезаписью — дообогащение старых записей

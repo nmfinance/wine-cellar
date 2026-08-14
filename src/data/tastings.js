@@ -1,5 +1,6 @@
 import { db } from '../db.js';
 import { normalizeName } from './normalize.js';
+import { ensureWineryGeo } from './wineries.js';
 import { askScoreOpinion } from '../api/ai.js';
 import { pluralize } from '../utils/plural.js';
 
@@ -42,6 +43,16 @@ export async function ensureWinery(wine) {
   return winery;
 }
 
+const isFirstWineryTasting = async (wineryId, excludeTastingId) => {
+  const wineIds = (await db.wines.filter((w) => w.wineryId === wineryId).toArray()).map(
+    (w) => w.id
+  );
+  const count = await db.tastings
+    .filter((t) => wineIds.includes(t.wineId) && t.id !== excludeTastingId)
+    .count();
+  return count === 0;
+};
+
 export async function addTasting(wineId, data) {
   const ts = now();
   const tasting = {
@@ -68,7 +79,19 @@ export async function addTasting(wineId, data) {
   await db.tastings.add(tasting);
 
   const wine = await db.wines.get(wineId);
-  if (wine) await ensureWinery(wine);
+  if (wine) {
+    const winery = await ensureWinery(wine);
+    // гео-фаза (P17): первая дегустация вин винодельни → координаты,
+    // асинхронно — переход в карточку не ждёт Nominatim
+    if (winery && winery.lat == null) {
+      isFirstWineryTasting(winery.id, tasting.id).then((first) => {
+        // первая — всегда; повторные — если геокодинг отложен или не пробовался
+        if (first || winery.needsGeocode || !winery.geoTriedAt) {
+          ensureWineryGeo(winery.id).catch((e) => console.warn('[geo] не удалось:', e));
+        }
+      });
+    }
+  }
   return tasting;
 }
 

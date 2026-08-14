@@ -55,7 +55,7 @@ export default function MapScreen() {
   const [offline, setOffline] = useState(false);
   const [sheetId, setSheetId] = useState(null);
   const [sheetFull, setSheetFull] = useState(false);
-  const [refining, setRefining] = useState(null); // wineryId в режиме уточнения
+  const [refining, setRefining] = useState(null); // {id, mode:'refine'|'place'}
   const swipeRef = useRef(null);
 
   // винодельни с координатами и хотя бы одной дегустацией их вин
@@ -70,7 +70,8 @@ export default function MapScreen() {
       const tastings = await db.tastings.filter((t) => wineIds.includes(t.wineId)).toArray();
       if (!tastings.length) continue;
       const avg = tastings.reduce((a, t) => a + (t.totalScore ?? 0), 0) / tastings.length;
-      result.push({ winery, wines, avg: Math.round(avg * 10) / 10 });
+      const tastedIds = new Set(tastings.map((t) => t.wineId));
+      result.push({ winery, wines, avg: Math.round(avg * 10) / 10, tastedCount: tastedIds.size });
     }
     return result;
   });
@@ -225,14 +226,23 @@ export default function MapScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapReady, points, location.state?.wineryId]);
 
+  // установка маркера для manual_needed (из карточки вина)
+  useEffect(() => {
+    const target = location.state?.placeWineryId;
+    if (!target || !mapReady || flownRef.current) return;
+    flownRef.current = true;
+    startPlacing(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, location.state?.placeWineryId]);
+
   const entry = sheetId ? points?.find((p) => p.winery.id === sheetId) : null;
 
-  // --- режим уточнения положения ----------------------------------------------
+  // --- уточнение/установка положения -------------------------------------------
   const startRefine = () => {
     const map = mapRef.current;
     const { winery } = entry;
     setSheetId(null);
-    setRefining(winery.id);
+    setRefining({ id: winery.id, mode: 'refine' });
     const marker = new MapLibreMarker({ draggable: true, color: '#722F37' })
       .setLngLat([winery.lng, winery.lat])
       .addTo(map);
@@ -240,21 +250,34 @@ export default function MapScreen() {
     map.easeTo({ center: [winery.lng, winery.lat], zoom: Math.max(map.getZoom(), 10) });
   };
 
+  // manual_needed из карточки вина: маркер в центре видимой области
+  const startPlacing = (wineryId) => {
+    const map = mapRef.current;
+    setRefining({ id: wineryId, mode: 'place' });
+    const marker = new MapLibreMarker({ draggable: true, color: '#722F37' })
+      .setLngLat(map.getCenter())
+      .addTo(map);
+    markerRef.current = marker;
+  };
+
   const finishRefine = async (save) => {
     const marker = markerRef.current;
+    const { id } = refining;
     if (save && marker) {
       const { lng, lat } = marker.getLngLat();
-      await db.wineries.update(refining, {
+      await db.wineries.update(id, {
         lat,
         lng,
         geoStatus: 'manual',
+        needsGeocode: false,
         updatedAt: new Date().toISOString(),
       });
     }
     marker?.remove();
     markerRef.current = null;
-    setSheetId(refining);
     setRefining(null);
+    if (save) setSheetId(id);
+    else if (refining.mode === 'refine') setSheetId(id);
   };
 
   // свайпы шита: вверх — на весь экран, вниз — свернуть/закрыть
@@ -286,7 +309,10 @@ export default function MapScreen() {
         </button>
         {points && (
           <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs text-stone-600 backdrop-blur dark:bg-stone-900/80 dark:text-stone-300">
-            {points.length} {pluralize(points.length, 'точка', 'точки', 'точек')}
+            {points.length} {pluralize(points.length, 'винодельня', 'винодельни', 'виноделен')} ·{' '}
+            {points.reduce((a, p) => a + p.tastedCount, 0)}{' '}
+            {pluralize(points.reduce((a, p) => a + p.tastedCount, 0), 'вино', 'вина', 'вин')}{' '}
+            продегустировано
           </span>
         )}
       </header>
@@ -307,10 +333,14 @@ export default function MapScreen() {
         </div>
       )}
 
-      {/* Режим уточнения */}
+      {/* Режим уточнения/установки */}
       {refining && (
         <div className="absolute right-4 bottom-6 left-4 rounded-xl bg-white p-3 shadow-lg dark:bg-stone-900">
-          <p className="text-sm">Перетащи маркер на точное место и подтверди</p>
+          <p className="text-sm">
+            {refining.mode === 'place'
+              ? 'Поставь маркер на винодельню и подтверди'
+              : 'Перетащи маркер на точное место и подтверди'}
+          </p>
           <div className="mt-2 flex gap-2">
             <button
               onClick={() => finishRefine(true)}
@@ -382,6 +412,13 @@ export default function MapScreen() {
                 <WineRow key={w.id} wine={w} subtitle={STATUS_LABEL(w)} />
               ))}
             </div>
+            {entry.wines.length > entry.tastedCount && (
+              <p className="mt-2 text-[12px] text-stone-400 dark:text-stone-500">
+                ещё {entry.wines.length - entry.tastedCount}{' '}
+                {pluralize(entry.wines.length - entry.tastedCount, 'вино', 'вина', 'вин')} не
+                пробовано
+              </p>
+            )}
           </div>
         </div>
       )}

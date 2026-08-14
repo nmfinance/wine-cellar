@@ -5,6 +5,7 @@ import App from './App.jsx';
 import { db } from './db.js';
 import { seedIfEmpty } from './data/seed.js';
 import { maybeAutoBackup } from './data/backup.js';
+import { backfillGeocode } from './data/wineries.js';
 import './index.css';
 
 // ?debug=1 → мобильная панель DevTools (eruda) отдельным чанком, по требованию
@@ -19,6 +20,8 @@ db.open()
     console.debug(`[db] pogreb открыта, версия схемы ${db.verno}`);
     // автобэкап на Яндекс.Диск (тихий, раз в сутки, только с токеном и онлайн)
     setTimeout(() => maybeAutoBackup(), 3000);
+    // доборка геокодинга (отложенные офлайном + самолечение старых записей)
+    setTimeout(() => backfillGeocode().catch(() => {}), 5000);
     if (import.meta.env.DEV) {
       await seedIfEmpty();
       // консольный доступ для отладки: window.__db, window.__data

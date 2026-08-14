@@ -319,6 +319,13 @@ export default function WineScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // «📍 {Винодельня} появилась на карте» — после фонового геокодинга
+  useEffect(() => {
+    const onGeo = (e) => setToast(`📍 ${e.detail.name} появилась на карте`);
+    window.addEventListener('winery-geocoded', onGeo);
+    return () => window.removeEventListener('winery-geocoded', onGeo);
+  }, []);
+
   const wine = useLiveQuery(() => db.wines.get(id).then((w) => w ?? null), [id]);
   const tastings = useLiveQuery(
     () =>
@@ -340,15 +347,20 @@ export default function WineScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wine?.id, wine?.aiDeep]);
 
-  // есть ли у винодельни точка на карте (координаты + хотя бы одна дегустация)
-  const mapPointId = useLiveQuery(async () => {
-    if (!wine?.wineryId) return null;
+  // состояние винодельни для строки карты:
+  // point — есть точка; manual — дегустации есть, координат нет; none — иначе
+  const mapState = useLiveQuery(async () => {
+    if (!wine?.wineryId) return { mode: 'none' };
     const w = await db.wineries.get(wine.wineryId);
-    if (!w || w.lat == null || w.lng == null) return null;
+    if (!w) return { mode: 'none' };
     const wineIds = (await db.wines.filter((x) => x.wineryId === w.id).toArray()).map((x) => x.id);
     const tasted = await db.tastings.filter((t) => wineIds.includes(t.wineId)).count();
-    return tasted > 0 ? w.id : null;
+    if (!tasted) return { mode: 'none' };
+    return w.lat != null && w.lng != null
+      ? { mode: 'point', wineryId: w.id }
+      : { mode: 'manual', wineryId: w.id };
   }, [wine?.wineryId]);
+  const mapPointId = mapState?.mode === 'point' ? mapState.wineryId : null;
 
   const [vivinoRefreshing, setVivinoRefreshing] = useState(false);
 
@@ -758,6 +770,17 @@ export default function WineScreen() {
               {wine.wineryName} на карте виноделен
             </span>
             <ChevronRight className="size-4 shrink-0 text-stone-400" />
+          </button>
+        ) : mapState?.mode === 'manual' ? (
+          <button
+            onClick={() => navigate('/map', { state: { placeWineryId: mapState.wineryId } })}
+            className="mx-4 mt-4 flex items-center gap-2 rounded-xl bg-white p-3 text-left dark:bg-stone-900"
+          >
+            <MapPin className="size-4 shrink-0 text-amber-500" />
+            <span className="min-w-0 flex-1 truncate text-sm">
+              📍 Не нашёл на карте ·{' '}
+              <span className="font-medium text-wine-600 dark:text-wine-400">Указать вручную</span>
+            </span>
           </button>
         ) : (
           <div className="mx-4 mt-4 flex items-center gap-2 rounded-xl bg-white p-3 dark:bg-stone-900">
