@@ -291,6 +291,49 @@ export default function TastingScreen() {
         </Card>
       )}
 
+      {/* Вопросы AI (read-only) */}
+      {tasting.aiQuestions?.length > 0 && (
+        <Card title="Вопросы AI">
+          <div className="space-y-2.5">
+            {tasting.aiQuestions.map((q, i) => (
+              <div key={i}>
+                <p className="text-[13px] text-stone-500 dark:text-stone-400">{q.question}</p>
+                <p className={`mt-0.5 text-sm ${q.answer ? 'text-stone-700 dark:text-stone-300' : 'text-stone-400 italic dark:text-stone-500'}`}>
+                  {q.answer ?? 'без ответа'}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Мнение AI об оценке */}
+      {tasting.aiOpinionPending && (
+        <Card title="Мнение AI об оценке">
+          <p className="animate-pulse text-sm text-stone-400 dark:text-stone-500">
+            ✨ AI перечитывает твои записи…
+          </p>
+        </Card>
+      )}
+      {!tasting.aiOpinionPending && tasting.aiOpinion && (
+        <Card title="Мнение AI об оценке">
+          {tasting.aiOpinion.verdict === 'match' ? (
+            <p className="text-sm text-emerald-700 dark:text-emerald-300">
+              ✨ AI по твоим записям: {tasting.aiOpinion.score?.toFixed(1)} — совпадает
+            </p>
+          ) : (
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              ✨ AI видит иначе: {tasting.aiOpinion.score?.toFixed(1)}
+            </p>
+          )}
+          {tasting.aiOpinion.comment && (
+            <p className="mt-1 text-[13px] text-stone-600 dark:text-stone-400">
+              {tasting.aiOpinion.comment}
+            </p>
+          )}
+        </Card>
+      )}
+
       <Card title="Оценка">
         {scoreRows.map(([label, value, max]) => (
           <div key={label} className="flex justify-between py-0.5 text-[13px]">

@@ -872,6 +872,9 @@ export default function WineScreen() {
                           дозаполнить
                         </span>
                       )}
+                      {t.aiOpinion?.verdict === 'differs' && (
+                        <span className="ml-1.5" title="AI видит оценку иначе">✨</span>
+                      )}
                     </span>
                   </span>
                 </Link>

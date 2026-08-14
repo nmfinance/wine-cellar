@@ -1,6 +1,6 @@
-// ИСТОЧНИК ИСТИНЫ — prompts.md в корне репозитория (версия 1.4).
+// ИСТОЧНИК ИСТИНЫ — prompts.md в корне репозитория (версия 1.5).
 // Правки формулировок делаются ТАМ и синхронизируются сюда руками.
-// S3–S5 переедут сюда в своих задачах.
+// S5 переедет сюда в своей задаче.
 
 export const PROMPT_S1 = `Ты — эксперт-сомелье. На изображении — этикетка винной бутылки
 (возможно два фото: лицевая сторона и контрэтикетка — используй обе).
@@ -132,6 +132,137 @@ const PROMPT_S6_TEMPLATE = `Ты — эрудированный сомелье-�
 Ответь ТОЛЬКО валидным JSON. Без пояснений, без вступлений, без markdown,
 без обратных кавычек. Первый символ ответа — {, последний — }.
 Неизвестные значения — null (не строка "неизвестно", не пустая строка).`;
+
+// S3 · Вопросы дегустации (вызов при открытии опросника)
+const PROMPT_S3_TEMPLATE = `Ты — дружелюбный сомелье-наставник. Пользователь прямо сейчас дегустирует
+вино и ведёт записи. Задай 1-2 вопроса, которые помогут ему глубже
+почувствовать именно это вино и развить навык дегустации.
+
+Вино: {{WINE_NAME}}, {{YEAR}}
+Сорт: {{GRAPES}} · Аппелласьон: {{APPELLATION}}, {{COUNTRY}}
+Тип: {{COLOR}}, {{SWEETNESS}}
+
+Опыт пользователя с этим сортом: {{GRAPE_EXPERIENCE}}
+
+{{SOMMELIER_TIPS}}
+
+Правила:
+- Вопросы — про конкретные, узнаваемые черты ЭТОГО вина (типичные ноты
+  сорта/аппелласьона, структура, эволюция в бокале). Не общие («нравится ли вам вино?»).
+- Если сорт для пользователя новый — вопрос-ориентир: на что обратить
+  внимание, чем сорт узнаваем.
+- Если сорт знакомый — вопрос-сравнение с прошлым опытом.
+- Если даны подсказки сомелье — вопросы РАЗВИВАЮТ их (проверить на практике,
+  сравнить с ожиданием), а не пересказывают.
+- Тон — живой, на «ты», одна-две фразы на вопрос. Без снобизма.
+
+Верни JSON: { "questions": ["...", "..."] }
+
+Ответь ТОЛЬКО валидным JSON. Без пояснений, без вступлений, без markdown,
+без обратных кавычек. Первый символ ответа — {, последний — }.
+Неизвестные значения — null (не строка "неизвестно", не пустая строка).`;
+
+const COLOR_RU = { red: 'красное', white: 'белое', rose: 'розовое', orange: 'оранжевое' };
+const SWEET_RU = { dry: 'сухое', semidry: 'полусухое', semisweet: 'полусладкое', sweet: 'сладкое' };
+
+export function buildPromptS3(wine, grapeExperience, sommelierTips = null) {
+  const tipsBlock = sommelierTips?.length
+    ? `Подсказки сомелье по этому вину (для контекста, не повторяй их дословно):\n${sommelierTips.map((t) => `- ${t}`).join('\n')}`
+    : '';
+  return PROMPT_S3_TEMPLATE
+    .replaceAll('{{WINE_NAME}}', wine.name || 'без названия')
+    .replaceAll('{{YEAR}}', wine.nvFlag ? 'NV' : (wine.year ?? 'год неизвестен'))
+    .replaceAll('{{GRAPES}}', wine.grapes?.length ? wine.grapes.map((g) => g.name).join(', ') : 'не указан')
+    .replaceAll('{{APPELLATION}}', wine.appellation || 'не указан')
+    .replaceAll('{{COUNTRY}}', wine.country || 'страна неизвестна')
+    .replaceAll('{{COLOR}}', COLOR_RU[wine.color] ?? wine.color ?? '—')
+    .replaceAll('{{SWEETNESS}}', SWEET_RU[wine.sweetness] ?? 'сладость не указана')
+    .replaceAll('{{GRAPE_EXPERIENCE}}', grapeExperience)
+    .replaceAll('{{SOMMELIER_TIPS}}', tipsBlock);
+}
+
+// S4 · Мнение об оценке (вызов после сохранения дегустации)
+const PROMPT_S4_TEMPLATE = `Ты — опытный дегустатор. Пользователь завершил дегустацию и поставил оценки
+по модифицированной шкале UC Davis (максимум 10 баллов:
+внешний вид 1.5, аромат 3.0, вкус и текстура 3.0, послевкусие 1.5,
+общее впечатление 1.0).
+
+Вино: {{WINE_NAME}} {{YEAR}}, {{GRAPES}}, {{APPELLATION}}
+
+Записи пользователя:
+- Цвет: {{COLOR_NOTES}}
+- Ароматы: {{AROMA_CHIPS}}
+- Вкус: {{TASTE_NOTES}}
+- Свободные заметки: {{FREE_NOTES}}
+- После аэрации: {{AERATION_NOTES}}
+- Ответы на вопросы AI: {{AI_ANSWERS}}
+- Его оценка: {{USER_SCORE}} из 10
+  (вид {{S_APPEARANCE}}/1.5, нос {{S_NOSE}}/3.0, вкус {{S_TASTE}}/3.0,
+   послевкусие {{S_FINISH}}/1.5, впечатление {{S_OVERALL}}/1.0)
+
+Верни JSON:
+{
+  "ai_score": 8.2,        // какую оценку по этой же шкале поставил бы ты,
+                          // опираясь ТОЛЬКО на записи пользователя (не на репутацию вина)
+  "verdict": "match",     // "match" — расхождение <= 0.7; "differs" — больше
+  "comment": "..."        // 1-2 фразы. При match — что в записях подтверждает оценку.
+                          // При differs — что именно в записях указывает на другую
+                          // оценку (например: заметки восторженные, а баллы скромные —
+                          // или наоборот). Без поучений.
+}
+
+Важно: ты оцениваешь СОГЛАСОВАННОСТЬ записей и баллов, а не «правильность»
+вкуса пользователя. Его восприятие — истина, ты лишь зеркало.
+
+Ответь ТОЛЬКО валидным JSON. Без пояснений, без вступлений, без markdown,
+без обратных кавычек. Первый символ ответа — {, последний — }.
+Неизвестные значения — null (не строка "неизвестно", не пустая строка).`;
+
+const CLARITY_RU = { clear: 'прозрачное', semi: 'полупрозрачное', hazy: 'мутное' };
+const intensityWord = (v) => (v == null ? null : v < 34 ? 'слабо' : v < 67 ? 'умеренно' : 'ярко');
+
+export function buildPromptS4(wine, t) {
+  const colorNotes = t.colorNote
+    ? [t.colorNote.hueName, intensityWord(t.colorNote.intensity) && `интенсивность: ${intensityWord(t.colorNote.intensity)}`, CLARITY_RU[t.colorNote.clarity]]
+        .filter(Boolean)
+        .join(', ')
+    : 'не записан';
+  const tasteParts = t.taste
+    ? [
+        `сладость: ${intensityWord(t.taste.sweetness)}`,
+        `кислотность: ${intensityWord(t.taste.acidity)}`,
+        `танины: ${intensityWord(t.taste.tannins)}`,
+        `тело: ${intensityWord(t.taste.body)}`,
+        `баланс: ${intensityWord(t.taste.balance)}`,
+        t.finishLength != null ? `послевкусие: ${intensityWord(t.finishLength)}` : null,
+        t.tasteFlavors?.length ? `ноты: ${t.tasteFlavors.join(', ')}` : null,
+      ]
+        .filter(Boolean)
+        .join('; ')
+    : 'не записан';
+  const answers = (t.aiQuestions ?? [])
+    .filter((q) => q.answer)
+    .map((q) => `«${q.question}» — «${q.answer}»`)
+    .join('; ');
+  const s = t.scores ?? {};
+  return PROMPT_S4_TEMPLATE
+    .replaceAll('{{WINE_NAME}}', wine.name || 'без названия')
+    .replaceAll('{{YEAR}}', wine.nvFlag ? 'NV' : (wine.year ?? ''))
+    .replaceAll('{{GRAPES}}', wine.grapes?.length ? wine.grapes.map((g) => g.name).join(', ') : 'сорт не указан')
+    .replaceAll('{{APPELLATION}}', wine.appellation || 'аппелласьон не указан')
+    .replaceAll('{{COLOR_NOTES}}', colorNotes)
+    .replaceAll('{{AROMA_CHIPS}}', t.aromas?.length ? t.aromas.join(', ') : 'не записаны')
+    .replaceAll('{{TASTE_NOTES}}', tasteParts)
+    .replaceAll('{{FREE_NOTES}}', t.notesNow || 'нет')
+    .replaceAll('{{AERATION_NOTES}}', t.aerationNotes || 'нет')
+    .replaceAll('{{AI_ANSWERS}}', answers || 'нет')
+    .replaceAll('{{USER_SCORE}}', t.totalScore?.toFixed(1) ?? '—')
+    .replaceAll('{{S_APPEARANCE}}', s.appearance ?? '—')
+    .replaceAll('{{S_NOSE}}', s.nose ?? '—')
+    .replaceAll('{{S_TASTE}}', s.taste ?? '—')
+    .replaceAll('{{S_FINISH}}', s.finish ?? '—')
+    .replaceAll('{{S_OVERALL}}', s.overall ?? '—');
+}
 
 export function buildPromptS6(wine) {
   const grapes = wine.grapes?.length

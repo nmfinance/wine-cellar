@@ -3,7 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Camera, Copy, X } from 'lucide-react';
 import { db } from '../db.js';
-import { addTasting } from '../data/tastings.js';
+import { addTasting, buildGrapeExperience, fireScoreOpinion } from '../data/tastings.js';
+import { askTastingQuestions } from '../api/ai.js';
 import { drinkBottle } from '../data/wines.js';
 import { AROMA_SETS, addCustomAromas, getCustomAromas } from '../data/aromas.js';
 import { compressImage } from '../utils/image.js';
@@ -159,6 +160,8 @@ export default function TastingFormScreen() {
   const [aerationPending, setAerationPending] = useState(false);
   const [touched, setTouched] = useState({}); // {1..5: true}
   const [writeOff, setWriteOff] = useState(null); // {tasting, quantity} — диалог списания
+  // S3: 'loading' | 'none' | [{question, answer}] — AI-сбой не мешает опроснику
+  const [aiQ, setAiQ] = useState('loading');
   const fileRef = useRef(null);
 
   const color = wine?.color ?? 'red';
@@ -168,6 +171,30 @@ export default function TastingFormScreen() {
   useEffect(() => {
     getCustomAromas(color).then(setCustomPool);
   }, [color]);
+
+  // S3 — асинхронно при открытии, один раз; офлайн/ошибка → карточки просто нет
+  useEffect(() => {
+    if (!wine) return;
+    let alive = true;
+    (async () => {
+      try {
+        const experience = await buildGrapeExperience(wine);
+        const res = await askTastingQuestions(wine, experience, wine.aiDeep?.sommelier_tips ?? null);
+        if (!alive) return;
+        if (res.ok && Array.isArray(res.data?.questions) && res.data.questions.length) {
+          setAiQ(res.data.questions.slice(0, 2).map((q) => ({ question: String(q), answer: '' })));
+        } else {
+          setAiQ('none');
+        }
+      } catch {
+        if (alive) setAiQ('none');
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wine?.id]);
 
   const touch = (n) => setTouched((t) => (t[n] ? t : { ...t, [n]: true }));
 
@@ -225,7 +252,9 @@ export default function TastingFormScreen() {
         notesNow: notesNow.trim() || null,
         aerationNotes: null,
         aerationPending,
-        aiQuestions: [],
+        aiQuestions: Array.isArray(aiQ)
+          ? aiQ.map((q) => ({ question: q.question, answer: q.answer.trim() || null }))
+          : [],
         aiOpinion: null,
         scores: {
           appearance: round1(scoreAppearance),
@@ -252,6 +281,9 @@ export default function TastingFormScreen() {
         (a) => !baseAromas.includes(a) && !customPool.includes(a)
       );
       await addCustomAromas(color, custom);
+
+      // S4 вдогонку — сохранение и выход не ждут AI
+      fireScoreOpinion(wine, tasting);
 
       // Списание бутылки: только для cellar-вина с бутылками
       // и не в ресторане (там очевидно не из погреба)
@@ -466,6 +498,37 @@ export default function TastingFormScreen() {
             />
           </div>
         </Section>
+
+        {/* Вопросы от AI (между Носом и Вкусом) */}
+        {aiQ === 'loading' && (
+          <div className="mx-4 rounded-xl bg-white p-3 dark:bg-stone-900">
+            <p className="animate-pulse text-[13px] text-stone-400 dark:text-stone-500">
+              ✨ AI готовит вопросы…
+            </p>
+          </div>
+        )}
+        {Array.isArray(aiQ) && (
+          <Section title="✨ Вопросы от AI">
+            <div className="space-y-3">
+              {aiQ.map((q, i) => (
+                <div key={i}>
+                  <p className="mb-1.5 text-[13px] text-stone-700 dark:text-stone-300">
+                    {q.question}
+                  </p>
+                  <VoiceInput
+                    rows={2}
+                    value={q.answer}
+                    onChange={(v) =>
+                      setAiQ((list) => list.map((x, j) => (j === i ? { ...x, answer: v } : x)))
+                    }
+                    placeholder="ответ (не обязательно)"
+                    onToast={setToast}
+                  />
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
 
         {/* 3 · Вкус и текстура */}
         <Section title="3 · Вкус и текстура">

@@ -1,5 +1,11 @@
 import { AI_URL, APP_KEY } from './config.js';
-import { PROMPT_S1, buildPromptS2, buildPromptS6 } from '../ai/prompts.js';
+import {
+  PROMPT_S1,
+  buildPromptS2,
+  buildPromptS3,
+  buildPromptS4,
+  buildPromptS6,
+} from '../ai/prompts.js';
 
 const blobToBase64 = (blob) =>
   new Promise((resolve, reject) => {
@@ -61,3 +67,10 @@ export const askWineryInfo = (winery) => askText('s2', buildPromptS2(winery));
 
 // S6: «глубже о вине» (кэш навсегда в wine.aiDeep)
 export const askDeepWine = (wine) => askText('s6', buildPromptS6(wine));
+
+// S3: вопросы дегустации (при открытии опросника)
+export const askTastingQuestions = (wine, grapeExperience, sommelierTips) =>
+  askText('s3', buildPromptS3(wine, grapeExperience, sommelierTips));
+
+// S4: мнение об оценке (после сохранения дегустации)
+export const askScoreOpinion = (wine, tasting) => askText('s4', buildPromptS4(wine, tasting));

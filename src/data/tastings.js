@@ -1,5 +1,7 @@
 import { db } from '../db.js';
 import { normalizeName } from './normalize.js';
+import { askScoreOpinion } from '../api/ai.js';
+import { pluralize } from '../utils/plural.js';
 
 const now = () => new Date().toISOString();
 
@@ -72,4 +74,50 @@ export async function addTasting(wineId, data) {
 
 export function listByWine(wineId) {
   return db.tastings.where('wineId').equals(wineId).sortBy('date');
+}
+
+// {{GRAPE_EXPERIENCE}} для S3: прошлые дегустации вин с тем же первым сортом
+// (включая прошлые дегустации этого же вина)
+export async function buildGrapeExperience(wine) {
+  const grape = wine.grapes?.[0]?.name;
+  if (!grape) return 'пробует этот сорт впервые';
+  const sameGrapeWines = await db.wines
+    .filter((w) => w.grapes?.[0]?.name === grape)
+    .toArray();
+  const wineIds = new Set(sameGrapeWines.map((w) => w.id));
+  const tastings = await db.tastings.filter((t) => wineIds.has(t.wineId)).toArray();
+  if (!tastings.length) return 'пробует этот сорт впервые';
+  const avg = tastings.reduce((a, t) => a + (t.totalScore ?? 0), 0) / tastings.length;
+  const counts = {};
+  for (const t of tastings) for (const a of t.aromas ?? []) counts[a] = (counts[a] ?? 0) + 1;
+  const top = Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([a]) => a);
+  return `пробовал ${tastings.length} ${pluralize(tastings.length, 'раз', 'раза', 'раз')}, средняя оценка ${avg.toFixed(1)}${
+    top.length ? `, чаще всего отмечал ароматы: ${top.join(', ')}` : ''
+  }`;
+}
+
+// S4 вдогонку после сохранения: мгновенное сохранение не ждёт AI,
+// результат приедет в tasting.aiOpinion через liveQuery
+export function fireScoreOpinion(wine, tasting) {
+  db.tastings.update(tasting.id, { aiOpinionPending: true }).catch(() => {});
+  askScoreOpinion(wine, tasting)
+    .then(async (res) => {
+      if (res.ok && typeof res.data?.ai_score === 'number') {
+        await db.tastings.update(tasting.id, {
+          aiOpinion: {
+            score: res.data.ai_score,
+            verdict: res.data.verdict === 'differs' ? 'differs' : 'match',
+            comment: res.data.comment ?? null,
+          },
+          aiOpinionPending: false,
+          updatedAt: now(),
+        });
+      } else {
+        await db.tastings.update(tasting.id, { aiOpinionPending: false });
+      }
+    })
+    .catch(() => db.tastings.update(tasting.id, { aiOpinionPending: false }));
 }
