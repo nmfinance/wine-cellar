@@ -22,6 +22,7 @@ import { matchScore } from '../api/score.js';
 import { ensureDeepInfo } from '../data/deep.js';
 import { refreshWineryInfo } from '../data/wineries.js';
 import { getScoreMode } from '../data/settings.js';
+import { usePageTitle } from '../utils/title.js';
 import { PLACEHOLDER_BY_COLOR, formatPrice, scoreBadgeClasses } from '../theme.js';
 import PhotoLightbox from '../components/PhotoLightbox.jsx';
 import Toast from '../components/Toast.jsx';
@@ -185,7 +186,20 @@ function TasteProfile({ taste, source }) {
 
 function DeepBlock({ wine, defaultOpen }) {
   const [open, setOpen] = useState(defaultOpen);
+  // «изучаю вино…» не должно пульсировать вечно: офлайн — сразу честный
+  // текст, онлайн — сдаёмся через 30 с (S6 попробует снова при след. открытии)
+  const [gaveUp, setGaveUp] = useState(false);
   const deep = wine.aiDeep;
+  useEffect(() => {
+    if (deep || !open) return undefined;
+    if (!navigator.onLine) {
+      setGaveUp(true);
+      return undefined;
+    }
+    setGaveUp(false);
+    const t = setTimeout(() => setGaveUp(true), 30_000);
+    return () => clearTimeout(t);
+  }, [deep, open]);
   // блок показываем, если данные есть или их имеет смысл ждать
   const expectable = wine.grapes?.length || wine.region || wine.appellation;
   if (!deep && !expectable) return null;
@@ -207,9 +221,15 @@ function DeepBlock({ wine, defaultOpen }) {
       {open && (
         <div className="mt-2 space-y-2.5">
           {!deep ? (
-            <p className="animate-pulse text-sm text-stone-500 dark:text-stone-400">
-              изучаю вино…
-            </p>
+            gaveUp ? (
+              <p className="text-sm text-stone-500 dark:text-stone-400">
+                Справка не загрузилась — появится при следующем открытии карточки
+              </p>
+            ) : (
+              <p className="animate-pulse text-sm text-stone-500 dark:text-stone-400">
+                изучаю вино…
+              </p>
+            )
           ) : (
             <>
               {deep.story && (
@@ -328,6 +348,7 @@ export default function WineScreen() {
   }, []);
 
   const wine = useLiveQuery(() => db.wines.get(id).then((w) => w ?? null), [id]);
+  usePageTitle(wine?.name ?? null);
   const scoreMode = useLiveQuery(getScoreMode) ?? 'last';
   const tastings = useLiveQuery(
     () =>
@@ -560,7 +581,8 @@ export default function WineScreen() {
 
       {/* Заголовочный блок */}
       <div className="px-4 pt-4">
-        <h1 className="line-clamp-2 text-lg leading-snug font-medium">{wine.name}</h1>
+        {/* полное имя без обрезки — это собственная карточка вина */}
+        <h1 className="text-lg leading-snug font-medium">{wine.name}</h1>
         {originLine && (
           <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">{originLine}</p>
         )}

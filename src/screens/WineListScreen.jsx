@@ -7,6 +7,7 @@ import { compressImage } from '../utils/image.js';
 import { analyzeWineList } from '../api/ai.js';
 import { getPersonalThreshold } from '../ai/profile.js';
 import { pluralize } from '../utils/plural.js';
+import { usePageTitle } from '../utils/title.js';
 import TasteProfileSheet from '../components/TasteProfileSheet.jsx';
 
 const SCAN_STATUSES = ['Читаю карту…', 'Советуюсь с сомелье…', 'Подбираю рекомендации…'];
@@ -25,6 +26,7 @@ const fmtDate = (iso) =>
 // /winelist: история сканов винных карт + новый скан (до 5 страниц одним S5)
 export default function WineListScreen() {
   const navigate = useNavigate();
+  usePageTitle('Винная карта');
   const [mode, setMode] = useState('list'); // list | shoot | scanning
   const [photos, setPhotos] = useState([]); // {blob, url}
   const [restaurant, setRestaurant] = useState('');
@@ -121,7 +123,7 @@ export default function WineListScreen() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col pb-8">
+    <div className="flex min-h-dvh flex-col pb-[calc(2rem+env(safe-area-inset-bottom))]">
       <header className="flex items-center bg-stone-50/95 px-2 py-2 dark:bg-stone-950/95">
         <button
           onClick={() => (mode === 'shoot' ? setMode('list') : navigate(-1))}

@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, Wine } from 'lucide-react';
 import { db } from '../db.js';
 import { scoreBadgeClasses } from '../theme.js';
+import { usePageTitle } from '../utils/title.js';
 
 // P20: статистика по живой базе. Без графиков-библиотек —
 // полосы и чипы на CSS (расширенная статистика — v2 по ТЗ).
@@ -33,6 +34,9 @@ function Block({ title, children }) {
 
 export default function StatsScreen() {
   const navigate = useNavigate();
+  usePageTitle('Статистика');
+  // DEV-хук проверки ErrorBoundary: window.__crashTest = true → краш экрана
+  if (import.meta.env.DEV && window.__crashTest) throw new Error('Тестовый краш (P21)');
 
   const stats = useLiveQuery(async () => {
     const wines = await db.wines.toArray();

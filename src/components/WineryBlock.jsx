@@ -22,9 +22,11 @@ export default function WineryBlock({ wineryId, defaultOpen, plain = false }) {
   if (!winery) return null;
 
   const loading = winery.infoStatus === 'loading';
+  const failed = winery.infoStatus === 'error';
   const opinion = winery.opinion ?? winery.aiSummary;
   const hasInfo = opinion || winery.regionNote || winery.founded;
-  if (!loading && !hasInfo) return null;
+  // после неудачной загрузки блок не прячем — даём «Повторить»
+  if (!loading && !failed && !hasInfo) return null;
 
   return (
     <div className={plain ? '' : 'mx-4 mt-4 rounded-xl bg-white p-3 dark:bg-stone-900'}>
@@ -50,6 +52,10 @@ export default function WineryBlock({ wineryId, defaultOpen, plain = false }) {
           {loading ? (
             <p className="animate-pulse text-stone-400 dark:text-stone-500">
               изучаю винодельню…
+            </p>
+          ) : failed && !hasInfo ? (
+            <p className="text-stone-500 dark:text-stone-400">
+              Справка не загрузилась — попробуй «обновить справку» при интернете
             </p>
           ) : winery.known === false && !opinion ? (
             <p>{winery.regionNote ?? 'Об этом хозяйстве пока ничего не известно.'}</p>

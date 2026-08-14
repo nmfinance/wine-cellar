@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Camera, Wine, X } from 'lucide-react';
 import { db } from '../db.js';
 import { compressImage } from '../utils/image.js';
+import { usePageTitle } from '../utils/title.js';
 import { scanLabel } from '../api/ai.js';
 import { buildVivinoQuery, lookupVivinoCached } from '../api/vivino.js';
 import { matchScore } from '../api/score.js';
@@ -52,6 +53,7 @@ const ERROR_BANNERS = {
 
 export default function ScanScreen() {
   const navigate = useNavigate();
+  usePageTitle('Скан этикетки');
   const [step, setStep] = useState('photo'); // photo | scanning | review
   const [photos, setPhotos] = useState([]); // {blob, url}
   const [banner, setBanner] = useState(null); // {text, action?: 'manual'|'retry', warn?}

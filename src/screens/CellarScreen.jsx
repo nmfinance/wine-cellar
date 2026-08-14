@@ -7,6 +7,8 @@ import { normalizeName } from '../data/normalize.js';
 import { listFiltered, listHistory } from '../data/wines.js';
 import { listRacks } from '../data/cellar.js';
 import { emptyFilters, hasActive } from '../data/filters.js';
+import { usePageTitle } from '../utils/title.js';
+import { useDebounced } from '../utils/debounce.js';
 import BottomSheet from '../components/BottomSheet.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import Fab from '../components/Fab.jsx';
@@ -88,6 +90,7 @@ function groupByMonth(wines) {
 
 export default function CellarScreen({ tab }) {
   const navigate = useNavigate();
+  usePageTitle(tab === 'wishlist' ? 'Wishlist' : tab === 'history' ? 'История' : null);
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(emptyFilters);
   const [addSheetOpen, setAddSheetOpen] = useState(false);
@@ -108,12 +111,14 @@ export default function CellarScreen({ tab }) {
     history: await db.wines.where('status').equals('history').count(),
   }));
 
+  // поиск с debounce 150 мс — база не перечитывается на каждый символ
+  const dq = useDebounced(query);
   const wines = useLiveQuery(
     () =>
       tab === 'history'
-        ? listHistory(query, historyReason)
-        : listFiltered(tab, query, filters),
-    [tab, query, filters, historyReason]
+        ? listHistory(dq, historyReason)
+        : listFiltered(tab, dq, filters),
+    [tab, dq, filters, historyReason]
   );
 
   // режим отображения погреба: 'grid' | 'shelves', живёт в meta

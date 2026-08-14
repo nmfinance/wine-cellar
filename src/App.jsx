@@ -1,5 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { HashRouter, Route, Routes } from 'react-router-dom';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
+import UpdateToast from './components/UpdateToast.jsx';
 import CellarScreen from './screens/CellarScreen.jsx';
 
 // MapLibre тяжёлый — чанк карты грузится только на /map
@@ -21,6 +23,7 @@ export default function App() {
     <HashRouter>
       <div className="min-h-dvh bg-stone-50 text-stone-900 dark:bg-stone-950 dark:text-stone-100">
         <div className="mx-auto min-h-dvh max-w-[480px]">
+          <ErrorBoundary>
           <Routes>
             <Route path="/" element={<CellarScreen tab="cellar" />} />
             <Route path="/wishlist" element={<CellarScreen tab="wishlist" />} />
@@ -46,6 +49,8 @@ export default function App() {
             <Route path="/settings/cellar" element={<CellarSettingsScreen />} />
             <Route path="/settings/backup" element={<BackupScreen />} />
           </Routes>
+          </ErrorBoundary>
+          <UpdateToast />
         </div>
       </div>
     </HashRouter>

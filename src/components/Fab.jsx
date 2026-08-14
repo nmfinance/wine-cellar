@@ -6,7 +6,7 @@ export default function Fab({ onClick }) {
     <button
       onClick={onClick}
       aria-label="Добавить вино"
-      className="fixed z-40 grid size-[52px] place-items-center rounded-full bg-wine-600 text-white shadow-lg transition-transform active:scale-95"
+      className="fixed z-40 grid size-[52px] place-items-center rounded-full bg-wine-600 text-white shadow-lg transition-transform active:scale-95 dark:bg-wine-400 dark:text-stone-950"
       style={{
         right: 'max(1rem, calc(50vw - 240px + 1rem))',
         bottom: 'calc(1rem + env(safe-area-inset-bottom))',

@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, ChevronDown, Trash2 } from 'lucide-react';
 import { db } from '../db.js';
 import { scoreBadgeClasses } from '../theme.js';
+import { usePageTitle } from '../utils/title.js';
 import Slider from '../components/Slider.jsx';
 import VoiceInput from '../components/VoiceInput.jsx';
 
@@ -136,6 +137,7 @@ function Bar({ label, value }) {
 export default function TastingScreen() {
   const { id } = useParams();
   const navigate = useNavigate();
+  usePageTitle('Дегустация');
   const tasting = useLiveQuery(() => db.tastings.get(id).then((t) => t ?? null), [id]);
   const wine = useLiveQuery(
     () => (tasting?.wineId ? db.wines.get(tasting.wineId) : null),

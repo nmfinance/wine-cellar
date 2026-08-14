@@ -14,7 +14,15 @@ if (new URLSearchParams(window.location.search).has('debug')) {
   import('eruda').then((eruda) => eruda.default.init());
 }
 
-registerSW({ immediate: true });
+// prompt-контур обновления: SW готов → событие для тоста «Доступна новая
+// версия»; тап по «Обновить» вызывает skipWaiting + reload (см. UpdateToast)
+const updateSW = registerSW({
+  immediate: true,
+  onNeedRefresh() {
+    window.dispatchEvent(new CustomEvent('sw-need-refresh'));
+  },
+});
+window.__applySWUpdate = () => updateSW(true);
 
 db.open()
   .then(async () => {

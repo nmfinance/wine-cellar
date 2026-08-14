@@ -11,7 +11,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // prompt: обновление применяется по тапу на тост «Доступна новая версия»
+      // (P21), а не молча при следующем открытии
+      registerType: 'prompt',
       workbox: {
         // включая favicon.svg и apple-touch-icon, чтобы офлайн был полным
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],

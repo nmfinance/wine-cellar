@@ -12,6 +12,7 @@ import { analyzeWineList } from '../api/ai.js';
 import { compressImage } from '../utils/image.js';
 import { formatPrice } from '../theme.js';
 import { pluralize } from '../utils/plural.js';
+import { usePageTitle } from '../utils/title.js';
 import Toast from '../components/Toast.jsx';
 
 const COLOR_MAP = { красное: 'red', белое: 'white', розовое: 'rose', оранжевое: 'orange' };
@@ -34,6 +35,7 @@ const fmtDate = (iso) =>
 export default function WineListResultScreen() {
   const { id } = useParams();
   const navigate = useNavigate();
+  usePageTitle('Винная карта');
   const [toast, setToast] = useState(null);
   const [colorFilter, setColorFilter] = useState(null);
   const [priceCap, setPriceCap] = useState(false);
@@ -85,7 +87,7 @@ export default function WineListResultScreen() {
     // только название: русские сорта в запросе ломают поиск Vivino
     const res = await lookupVivinoCached(p.name, p.year ?? null);
     if (!res.ok) {
-      setVivino((v) => ({ ...v, [idx]: { miss: true } }));
+      setVivino((v) => ({ ...v, [idx]: { miss: true, offline: navigator.onLine === false } }));
       return;
     }
     let markup = null;
@@ -189,7 +191,7 @@ export default function WineListResultScreen() {
     return <p className="mt-10 text-center text-sm text-stone-500">Скан не найден</p>;
 
   return (
-    <div className="flex min-h-dvh flex-col pb-8">
+    <div className="flex min-h-dvh flex-col pb-[calc(2rem+env(safe-area-inset-bottom))]">
       <header className="sticky top-0 z-10 flex items-center justify-between bg-stone-50/95 px-2 py-2 backdrop-blur dark:bg-stone-950/95">
         <div className="flex min-w-0 items-center">
           <button
@@ -282,6 +284,11 @@ export default function WineListResultScreen() {
                 {[pos.color, pos.grapes, pos.appellation, pos.country].filter(Boolean).join(' · ')}
               </p>
 
+              {vi?.miss && (
+                <p className="mt-1 text-[12px] text-stone-400 dark:text-stone-500">
+                  {vi.offline ? 'рейтинг подтянется при интернете' : 'на Vivino не нашлось'}
+                </p>
+              )}
               {(vi?.rating != null || vi?.markup != null) && (
                 <p className="mt-1 text-[12px] text-stone-500 dark:text-stone-400">
                   {vi.rating != null && <>★ {vi.rating.toFixed(1)}</>}

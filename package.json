@@ -1,6 +1,6 @@
 {
   "name": "wine-cellar",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "PWA «Мой погреб» — личный винный погреб с дегустационными заметками",

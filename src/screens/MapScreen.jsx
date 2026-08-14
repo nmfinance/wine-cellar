@@ -6,6 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { ArrowLeft, MapPinned, Navigation } from 'lucide-react';
 import { db } from '../db.js';
 import { getScoreMode, wineScore } from '../data/settings.js';
+import { usePageTitle } from '../utils/title.js';
 import { scoreBadgeClasses } from '../theme.js';
 import { pluralize } from '../utils/plural.js';
 import WineryBlock from '../components/WineryBlock.jsx';
@@ -47,6 +48,7 @@ const STATUS_LABEL = (w) =>
 export default function MapScreen() {
   const navigate = useNavigate();
   const location = useLocation();
+  usePageTitle('Карта');
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const geojsonRef = useRef({ type: 'FeatureCollection', features: [] });

@@ -9,6 +9,7 @@ import { drinkBottle } from '../data/wines.js';
 import { AROMA_SETS, addCustomAromas, getCustomAromas } from '../data/aromas.js';
 import { compressImage } from '../utils/image.js';
 import { scoreBadgeClasses } from '../theme.js';
+import { usePageTitle } from '../utils/title.js';
 import Slider from '../components/Slider.jsx';
 import Toast from '../components/Toast.jsx';
 import VoiceInput from '../components/VoiceInput.jsx';
@@ -132,6 +133,7 @@ function AromaPicker({ options, selected, onToggle, onAddCustom }) {
 export default function TastingFormScreen() {
   const { id } = useParams();
   const navigate = useNavigate();
+  usePageTitle('Дегустация');
   const wine = useLiveQuery(() => db.wines.get(id).then((w) => w ?? null), [id]);
   const [toast, setToast] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -333,7 +335,7 @@ export default function TastingFormScreen() {
   ];
 
   return (
-    <div className="flex min-h-dvh flex-col pb-8">
+    <div className="flex min-h-dvh flex-col pb-[calc(2rem+env(safe-area-inset-bottom))]">
       {/* Шапка */}
       <header className="sticky top-0 z-10 bg-stone-50/95 backdrop-blur dark:bg-stone-950/95">
         <div className="flex items-center justify-between px-2 py-2">

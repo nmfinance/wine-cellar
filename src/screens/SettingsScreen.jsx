@@ -24,6 +24,7 @@ import {
 } from '../data/settings.js';
 import BottomSheet from '../components/BottomSheet.jsx';
 import Toast from '../components/Toast.jsx';
+import { usePageTitle } from '../utils/title.js';
 import { version } from '../../package.json';
 
 const fmtShort = (iso) => {
@@ -66,6 +67,7 @@ function OptionSheet({ open, onClose, title, options, current, onPick }) {
 
 export default function SettingsScreen() {
   const navigate = useNavigate();
+  usePageTitle('Настройки');
   const [toast, setToast] = useState(null);
   const [sheet, setSheet] = useState(null); // 'theme' | 'score' | 'about'
 

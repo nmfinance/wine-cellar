@@ -22,6 +22,10 @@ export function isDark(setting) {
 export function applyTheme(setting) {
   const dark = isDark(setting);
   document.documentElement.classList.toggle('dark', dark);
+  // статус-бар в цвет фона приложения (stone-50 / stone-950)
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', dark ? '#0c0a09' : '#fafaf9');
   window.dispatchEvent(new CustomEvent('themechange', { detail: { dark } }));
 }
 
