@@ -24,6 +24,7 @@ import { refreshWineryInfo } from '../data/wineries.js';
 import { PLACEHOLDER_BY_COLOR, formatPrice, scoreBadgeClasses } from '../theme.js';
 import PhotoLightbox from '../components/PhotoLightbox.jsx';
 import Toast from '../components/Toast.jsx';
+import WineryBlock from '../components/WineryBlock.jsx';
 
 const COLOR_LABEL = { red: 'Красное', white: 'Белое', rose: 'Розовое', orange: 'Оранжевое' };
 const SWEET_LABEL = { dry: 'сухое', semidry: 'полусухое', semisweet: 'полусладкое', sweet: 'сладкое' };
@@ -243,90 +244,6 @@ function DeepBlock({ wine, defaultOpen }) {
   );
 }
 
-// --- Блок «О винодельне» ------------------------------------------------------
-
-const POSITIONING_LABEL = {
-  massmarket: 'Массмаркет',
-  premium: 'Премиум',
-  boutique: 'Бутик',
-  mixed: 'Смешанный портфель',
-};
-
-function WineryBlock({ wineryId, defaultOpen }) {
-  const winery = useLiveQuery(
-    () => (wineryId ? db.wineries.get(wineryId) : null),
-    [wineryId]
-  );
-  const [open, setOpen] = useState(defaultOpen);
-  if (!winery) return null;
-
-  const loading = winery.infoStatus === 'loading';
-  const opinion = winery.opinion ?? winery.aiSummary;
-  const hasInfo = opinion || winery.regionNote || winery.founded;
-  if (!loading && !hasInfo) return null;
-
-  return (
-    <div className="mx-4 mt-4 rounded-xl bg-white p-3 dark:bg-stone-900">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 text-left"
-      >
-        <span className="min-w-0 truncate text-sm font-medium">О винодельне {winery.name}</span>
-        <span className="flex shrink-0 items-center gap-1.5">
-          {winery.positioning && POSITIONING_LABEL[winery.positioning] && (
-            <span className="rounded-full bg-stone-200 px-2 py-0.5 text-[11px] text-stone-700 dark:bg-stone-800 dark:text-stone-300">
-              {POSITIONING_LABEL[winery.positioning]}
-            </span>
-          )}
-          <ChevronDown
-            className={`size-4 text-stone-400 transition-transform ${open ? 'rotate-180' : ''}`}
-          />
-        </span>
-      </button>
-
-      {open && (
-        <div className="mt-2 space-y-1.5 text-sm text-stone-700 dark:text-stone-300">
-          {loading ? (
-            <p className="animate-pulse text-stone-400 dark:text-stone-500">
-              изучаю винодельню…
-            </p>
-          ) : winery.known === false && !opinion ? (
-            <p>{winery.regionNote ?? 'Об этом хозяйстве пока ничего не известно.'}</p>
-          ) : (
-            <>
-              {(winery.founded || winery.regionNote) && (
-                <p className="text-xs text-stone-500 dark:text-stone-400">
-                  {[winery.founded ? `основана ${winery.founded}` : null, winery.regionNote]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
-              )}
-              {winery.history && <p>{winery.history}</p>}
-              {winery.portfolio && (
-                <p className="text-xs text-stone-500 dark:text-stone-400">{winery.portfolio}</p>
-              )}
-              {opinion && <p>{opinion}</p>}
-              {winery.notableWines && (
-                <p className="text-xs text-stone-500 dark:text-stone-400">
-                  Знаковые вина: {winery.notableWines}
-                </p>
-              )}
-            </>
-          )}
-          {!loading && (
-            <button
-              onClick={() => refreshWineryInfo(winery.id)}
-              className="flex items-center gap-1 text-[11px] font-medium text-wine-600 dark:text-wine-400"
-            >
-              <RefreshCw className="size-3" /> обновить справку
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // --- Ручной поиск Vivino в карточке -------------------------------------------
 
 function VivinoInlineSearch({ wine, onDone }) {
@@ -422,6 +339,16 @@ export default function WineScreen() {
     if (wine && !wine.aiDeep) ensureDeepInfo(wine);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wine?.id, wine?.aiDeep]);
+
+  // есть ли у винодельни точка на карте (координаты + хотя бы одна дегустация)
+  const mapPointId = useLiveQuery(async () => {
+    if (!wine?.wineryId) return null;
+    const w = await db.wineries.get(wine.wineryId);
+    if (!w || w.lat == null || w.lng == null) return null;
+    const wineIds = (await db.wines.filter((x) => x.wineryId === w.id).toArray()).map((x) => x.id);
+    const tasted = await db.tastings.filter((t) => wineIds.includes(t.wineId)).count();
+    return tasted > 0 ? w.id : null;
+  }, [wine?.wineryId]);
 
   const [vivinoRefreshing, setVivinoRefreshing] = useState(false);
 
@@ -820,18 +747,26 @@ export default function WineScreen() {
       {wine.wineryId && <WineryBlock wineryId={wine.wineryId} defaultOpen={!!scanBanner} />}
 
       {/* Винодельня на карте */}
-      {wine.wineryId && (
-        <button
-          onClick={() => setToast('Карта в разработке')}
-          className="mx-4 mt-4 flex items-center gap-2 rounded-xl bg-white p-3 text-left dark:bg-stone-900"
-        >
-          <MapPin className="size-4 shrink-0 text-wine-600 dark:text-wine-400" />
-          <span className="min-w-0 flex-1 truncate text-sm">
-            {wine.wineryName} на карте виноделен
-          </span>
-          <ChevronRight className="size-4 shrink-0 text-stone-400" />
-        </button>
-      )}
+      {wine.wineryName &&
+        (mapPointId ? (
+          <button
+            onClick={() => navigate('/map', { state: { wineryId: mapPointId } })}
+            className="mx-4 mt-4 flex items-center gap-2 rounded-xl bg-white p-3 text-left dark:bg-stone-900"
+          >
+            <MapPin className="size-4 shrink-0 text-wine-600 dark:text-wine-400" />
+            <span className="min-w-0 flex-1 truncate text-sm">
+              {wine.wineryName} на карте виноделен
+            </span>
+            <ChevronRight className="size-4 shrink-0 text-stone-400" />
+          </button>
+        ) : (
+          <div className="mx-4 mt-4 flex items-center gap-2 rounded-xl bg-white p-3 dark:bg-stone-900">
+            <MapPin className="size-4 shrink-0 text-stone-300 dark:text-stone-600" />
+            <span className="min-w-0 flex-1 truncate text-sm text-stone-400 dark:text-stone-500">
+              появится на карте после первой дегустации
+            </span>
+          </div>
+        ))}
 
       {/* Дегустации */}
       <div className="mx-4 mt-5 mb-2">

@@ -1,0 +1,390 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { Map as MapLibreMap, Marker as MapLibreMarker } from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+import { ArrowLeft, MapPinned, Navigation } from 'lucide-react';
+import { db } from '../db.js';
+import { scoreBadgeClasses } from '../theme.js';
+import { pluralize } from '../utils/plural.js';
+import WineryBlock from '../components/WineryBlock.jsx';
+import WineRow from '../components/WineRow.jsx';
+
+const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+const DARK_STYLE = 'https://tiles.openfreemap.org/styles/dark';
+// офлайн: тайлов нет, но точки должны жить на сером фоне
+const FALLBACK_STYLE = {
+  version: 8,
+  sources: {},
+  layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#d6d3d1' } }],
+};
+
+const scoreColor = (avg) => (avg >= 8 ? '#059669' : avg >= 5 ? '#d97706' : '#dc2626');
+
+// пунктирное кольцо для approximate-точек (circle-слои не умеют dasharray)
+function dashedRingImage(size = 48) {
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 4;
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 4, 0, Math.PI * 2);
+  ctx.stroke();
+  return ctx.getImageData(0, 0, size, size);
+}
+
+const STATUS_LABEL = (w) =>
+  w.status === 'cellar'
+    ? `в погребе ×${w.quantity}`
+    : w.status === 'wishlist'
+      ? 'wishlist'
+      : 'выпито';
+
+export default function MapScreen() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const geojsonRef = useRef({ type: 'FeatureCollection', features: [] });
+  const markerRef = useRef(null);
+  const flownRef = useRef(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [offline, setOffline] = useState(false);
+  const [sheetId, setSheetId] = useState(null);
+  const [sheetFull, setSheetFull] = useState(false);
+  const [refining, setRefining] = useState(null); // wineryId в режиме уточнения
+  const swipeRef = useRef(null);
+
+  // винодельни с координатами и хотя бы одной дегустацией их вин
+  const points = useLiveQuery(async () => {
+    const wineries = await db.wineries
+      .filter((w) => w.lat != null && w.lng != null)
+      .toArray();
+    const result = [];
+    for (const winery of wineries) {
+      const wines = await db.wines.filter((x) => x.wineryId === winery.id).toArray();
+      const wineIds = wines.map((x) => x.id);
+      const tastings = await db.tastings.filter((t) => wineIds.includes(t.wineId)).toArray();
+      if (!tastings.length) continue;
+      const avg = tastings.reduce((a, t) => a + (t.totalScore ?? 0), 0) / tastings.length;
+      result.push({ winery, wines, avg: Math.round(avg * 10) / 10 });
+    }
+    return result;
+  });
+
+  const geojson = useMemo(() => {
+    const features = (points ?? []).map(({ winery, avg }) => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [winery.lng, winery.lat] },
+      properties: {
+        id: winery.id,
+        color: scoreColor(avg),
+        approximate: winery.geoStatus === 'approximate',
+      },
+    }));
+    return { type: 'FeatureCollection', features };
+  }, [points]);
+  geojsonRef.current = geojson;
+
+  // --- карта: создаётся один раз, слои перевешиваются на каждый style.load ---
+  useEffect(() => {
+    const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const map = new MapLibreMap({
+      container: containerRef.current,
+      style: dark ? DARK_STYLE : LIGHT_STYLE,
+      center: [15, 46],
+      zoom: 3.2,
+      attributionControl: { compact: true }, // атрибуция OSM/OpenFreeMap обязательна
+    });
+    mapRef.current = map;
+    if (import.meta.env.DEV) window.__map = map; // для консольной отладки
+    let fellBack = false;
+
+    const addLayers = () => {
+      if (map.getSource('wineries')) return;
+      map.addSource('wineries', {
+        type: 'geojson',
+        data: geojsonRef.current,
+        cluster: true,
+        clusterRadius: 50,
+      });
+      map.addLayer({
+        id: 'clusters',
+        type: 'circle',
+        source: 'wineries',
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': '#5c262d',
+          'circle-radius': 16,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#ffffff',
+        },
+      });
+      // число в кластере: только если у стиля есть глифы (fallback их не имеет)
+      if (map.getStyle().glyphs) {
+        map.addLayer({
+          id: 'cluster-count',
+          type: 'symbol',
+          source: 'wineries',
+          filter: ['has', 'point_count'],
+          layout: {
+            'text-field': ['get', 'point_count_abbreviated'],
+            'text-font': ['Noto Sans Regular'],
+            'text-size': 13,
+          },
+          paint: { 'text-color': '#ffffff' },
+        });
+      }
+      map.addLayer({
+        id: 'points',
+        type: 'circle',
+        source: 'wineries',
+        filter: ['!', ['has', 'point_count']],
+        paint: {
+          'circle-color': ['get', 'color'],
+          'circle-radius': 8,
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#ffffff',
+        },
+      });
+      if (!map.hasImage('dashed-ring')) {
+        map.addImage('dashed-ring', dashedRingImage(), { pixelRatio: 2 });
+      }
+      map.addLayer({
+        id: 'points-approximate',
+        type: 'symbol',
+        source: 'wineries',
+        filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'approximate'], true]],
+        layout: { 'icon-image': 'dashed-ring', 'icon-allow-overlap': true, 'icon-size': 1 },
+      });
+      setMapReady(true);
+    };
+
+    map.on('style.load', addLayers);
+    map.on('error', (e) => {
+      // стиль не догрузился (офлайн) → минимальный фон, точки живут
+      if (!fellBack && !map.isStyleLoaded() && /style|Failed to fetch|NetworkError/i.test(String(e.error?.message ?? e.error ?? ''))) {
+        fellBack = true;
+        setOffline(true);
+        map.setStyle(FALLBACK_STYLE);
+      }
+    });
+
+    map.on('click', 'clusters', async (e) => {
+      const feature = e.features[0];
+      const zoom = await map.getSource('wineries').getClusterExpansionZoom(feature.properties.cluster_id);
+      map.easeTo({ center: feature.geometry.coordinates, zoom: zoom + 0.5 });
+    });
+    map.on('click', 'points', (e) => {
+      const id = e.features[0].properties.id;
+      setSheetFull(false);
+      setSheetId(id);
+      map.easeTo({ center: e.features[0].geometry.coordinates, padding: { bottom: 260 } });
+    });
+    map.on('mouseenter', 'points', () => (map.getCanvas().style.cursor = 'pointer'));
+    map.on('mouseleave', 'points', () => (map.getCanvas().style.cursor = ''));
+
+    // переключение темы вживую
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onTheme = (ev) => {
+      if (!fellBack) map.setStyle(ev.matches ? DARK_STYLE : LIGHT_STYLE);
+    };
+    mq.addEventListener('change', onTheme);
+
+    return () => {
+      mq.removeEventListener('change', onTheme);
+      markerRef.current?.remove();
+      map.remove();
+    };
+  }, []);
+
+  // реактивные данные: setData без пересоздания карты
+  useEffect(() => {
+    const map = mapRef.current;
+    if (map && mapReady && map.getSource('wineries')) {
+      map.getSource('wineries').setData(geojson);
+    }
+  }, [geojson, mapReady]);
+
+  // flyTo из карточки вина
+  useEffect(() => {
+    const target = location.state?.wineryId;
+    if (!target || !mapReady || flownRef.current || !points) return;
+    const entry = points.find((p) => p.winery.id === target);
+    if (!entry) return;
+    flownRef.current = true;
+    mapRef.current.flyTo({
+      center: [entry.winery.lng, entry.winery.lat],
+      zoom: 9,
+      padding: { bottom: 260 },
+    });
+    setSheetId(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapReady, points, location.state?.wineryId]);
+
+  const entry = sheetId ? points?.find((p) => p.winery.id === sheetId) : null;
+
+  // --- режим уточнения положения ----------------------------------------------
+  const startRefine = () => {
+    const map = mapRef.current;
+    const { winery } = entry;
+    setSheetId(null);
+    setRefining(winery.id);
+    const marker = new MapLibreMarker({ draggable: true, color: '#722F37' })
+      .setLngLat([winery.lng, winery.lat])
+      .addTo(map);
+    markerRef.current = marker;
+    map.easeTo({ center: [winery.lng, winery.lat], zoom: Math.max(map.getZoom(), 10) });
+  };
+
+  const finishRefine = async (save) => {
+    const marker = markerRef.current;
+    if (save && marker) {
+      const { lng, lat } = marker.getLngLat();
+      await db.wineries.update(refining, {
+        lat,
+        lng,
+        geoStatus: 'manual',
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    marker?.remove();
+    markerRef.current = null;
+    setSheetId(refining);
+    setRefining(null);
+  };
+
+  // свайпы шита: вверх — на весь экран, вниз — свернуть/закрыть
+  const onSheetTouchStart = (e) => {
+    swipeRef.current = e.touches[0].clientY;
+  };
+  const onSheetTouchEnd = (e) => {
+    if (swipeRef.current == null) return;
+    const dy = e.changedTouches[0].clientY - swipeRef.current;
+    swipeRef.current = null;
+    if (dy < -50) setSheetFull(true);
+    else if (dy > 50) {
+      if (sheetFull) setSheetFull(false);
+      else setSheetId(null);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0">
+      <div ref={containerRef} className="h-full w-full" />
+
+      {/* Шапка поверх карты */}
+      <header className="absolute top-0 right-0 left-0 flex items-center justify-between bg-gradient-to-b from-stone-50/95 to-transparent px-2 pt-2 pb-6 dark:from-stone-950/95">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-1 rounded-lg bg-white/80 px-3 py-2 text-sm font-medium text-wine-600 backdrop-blur dark:bg-stone-900/80 dark:text-wine-400"
+        >
+          <ArrowLeft className="size-4" /> Карта виноделен
+        </button>
+        {points && (
+          <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs text-stone-600 backdrop-blur dark:bg-stone-900/80 dark:text-stone-300">
+            {points.length} {pluralize(points.length, 'точка', 'точки', 'точек')}
+          </span>
+        )}
+      </header>
+
+      {offline && (
+        <p className="absolute top-14 left-1/2 -translate-x-1/2 rounded-full bg-amber-100 px-3 py-1.5 text-[12px] whitespace-nowrap text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          Тайлы карты требуют сети
+        </p>
+      )}
+
+      {/* Пустое состояние */}
+      {points?.length === 0 && (
+        <div className="absolute inset-0 grid place-items-center px-10">
+          <div className="rounded-2xl bg-white/90 p-4 text-center text-sm text-stone-600 backdrop-blur dark:bg-stone-900/90 dark:text-stone-300">
+            <MapPinned className="mx-auto mb-2 size-8 text-wine-600 dark:text-wine-400" />
+            Карта наполняется сама: продегустируй вино — его винодельня появится точкой
+          </div>
+        </div>
+      )}
+
+      {/* Режим уточнения */}
+      {refining && (
+        <div className="absolute right-4 bottom-6 left-4 rounded-xl bg-white p-3 shadow-lg dark:bg-stone-900">
+          <p className="text-sm">Перетащи маркер на точное место и подтверди</p>
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => finishRefine(true)}
+              className="flex-1 rounded-lg bg-wine-600 py-2 text-sm font-medium text-white dark:bg-wine-400 dark:text-stone-950"
+            >
+              Готово
+            </button>
+            <button
+              onClick={() => finishRefine(false)}
+              className="flex-1 rounded-lg border border-stone-300 py-2 text-sm dark:border-stone-600"
+            >
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Шит винодельни поверх живой карты */}
+      {entry && !refining && (
+        <div
+          className={`absolute right-0 bottom-0 left-0 mx-auto max-w-[480px] rounded-t-2xl bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.15)] transition-[height] duration-200 dark:bg-stone-900 ${
+            sheetFull ? 'h-[92dvh]' : 'h-[45dvh]'
+          }`}
+          onTouchStart={onSheetTouchStart}
+          onTouchEnd={onSheetTouchEnd}
+        >
+          <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-stone-300 dark:bg-stone-700" />
+          <div className="h-[calc(100%-1rem)] overflow-y-auto px-4 pt-2 pb-6">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold">{entry.winery.name}</h2>
+                <p className="text-[13px] text-stone-500 dark:text-stone-400">
+                  {[entry.winery.region, entry.winery.country].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+              <span
+                className={`shrink-0 rounded-full px-2.5 py-1 text-sm font-bold ${scoreBadgeClasses(entry.avg)}`}
+              >
+                {entry.avg.toFixed(1)}
+              </span>
+            </div>
+
+            {entry.winery.geoStatus === 'approximate' && (
+              <button
+                onClick={startRefine}
+                className="mt-2 w-full rounded-lg bg-amber-100 px-3 py-2 text-left text-[13px] text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+              >
+                📍 Положение приблизительное (центр региона) ·{' '}
+                <span className="font-medium underline">Уточнить</span>
+              </button>
+            )}
+
+            <a
+              href={`geo:${entry.winery.lat},${entry.winery.lng}?q=${encodeURIComponent(entry.winery.name)}`}
+              className="mt-2.5 flex items-center gap-2 rounded-lg border border-stone-200 px-3 py-2.5 text-sm font-medium text-wine-700 dark:border-stone-700 dark:text-wine-200"
+            >
+              <Navigation className="size-4" /> Маршрут
+            </a>
+
+            <div className="mt-3">
+              <WineryBlock wineryId={entry.winery.id} defaultOpen={false} plain />
+            </div>
+
+            <h3 className="mt-4 mb-1.5 text-sm font-medium text-stone-500 dark:text-stone-400">
+              Твои вина отсюда · {entry.wines.length}
+            </h3>
+            <div className="space-y-1.5">
+              {entry.wines.map((w) => (
+                <WineRow key={w.id} wine={w} subtitle={STATUS_LABEL(w)} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
