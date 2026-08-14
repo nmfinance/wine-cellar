@@ -4,6 +4,7 @@ import { registerSW } from 'virtual:pwa-register';
 import App from './App.jsx';
 import { db } from './db.js';
 import { seedIfEmpty } from './data/seed.js';
+import { maybeAutoBackup } from './data/backup.js';
 import './index.css';
 
 // ?debug=1 → мобильная панель DevTools (eruda) отдельным чанком, по требованию
@@ -16,6 +17,8 @@ registerSW({ immediate: true });
 db.open()
   .then(async () => {
     console.debug(`[db] pogreb открыта, версия схемы ${db.verno}`);
+    // автобэкап на Яндекс.Диск (тихий, раз в сутки, только с токеном и онлайн)
+    setTimeout(() => maybeAutoBackup(), 3000);
     if (import.meta.env.DEV) {
       await seedIfEmpty();
       // консольный доступ для отладки: window.__db, window.__data

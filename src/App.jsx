@@ -1,6 +1,7 @@
 import { HashRouter, Route, Routes } from 'react-router-dom';
 import CellarScreen from './screens/CellarScreen.jsx';
 import CellarSettingsScreen from './screens/CellarSettingsScreen.jsx';
+import BackupScreen from './screens/BackupScreen.jsx';
 import ScanScreen from './screens/ScanScreen.jsx';
 import SettingsScreen from './screens/SettingsScreen.jsx';
 import StubScreen from './screens/StubScreen.jsx';
@@ -28,6 +29,7 @@ export default function App() {
             <Route path="/map" element={<StubScreen title="Карта" />} />
             <Route path="/settings" element={<SettingsScreen />} />
             <Route path="/settings/cellar" element={<CellarSettingsScreen />} />
+            <Route path="/settings/backup" element={<BackupScreen />} />
           </Routes>
         </div>
       </div>

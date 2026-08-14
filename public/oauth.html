@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Мой погреб</title>
+  <style>
+    body { font-family: system-ui, sans-serif; display: grid; place-items: center;
+           min-height: 100dvh; margin: 0; background: #fafaf9; color: #44403c; }
+    @media (prefers-color-scheme: dark) { body { background: #0c0a09; color: #d6d3d1; } }
+  </style>
+</head>
+<body>
+  <p>Подключаю Яндекс.Диск…</p>
+  <script>
+    // Статическая страничка вне React: ловит implicit-flow токен из fragment,
+    // кладёт в localStorage и возвращает в приложение.
+    var p = new URLSearchParams(location.hash.slice(1));
+    var token = p.get('access_token');
+    var expiresIn = Number(p.get('expires_in') || 0);
+    if (token) {
+      localStorage.setItem('ya_token', JSON.stringify({
+        token: token,
+        expiresAt: Date.now() + expiresIn * 1000,
+      }));
+    }
+    location.replace('./#/settings/backup');
+  </script>
+</body>
+</html>

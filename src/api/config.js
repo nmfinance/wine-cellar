@@ -5,3 +5,5 @@
 export const AI_URL = 'https://pogreb-ai.pogreb-ai.workers.dev';
 export const VIVINO_URL = 'https://d5dlupicqp46hpphst15.y5sm01em.apigw.yandexcloud.net';
 export const APP_KEY = 'c2fecae3-61f9-4627-b2b7-2643fe9d5ca5';
+// OAuth ClientID Яндекс.Диска (implicit flow, не секрет)
+export const YA_CLIENT_ID = '091bf1c61eae4e5b8c5c07e365e9d8fb';
