@@ -103,6 +103,9 @@ export async function analyzeWineList(images, signal = null) {
   }
 
   const profile = await buildTasteProfile();
+  const tastingsCount = await db.tastings.count();
+  console.debug(`[s5] режим: ${profile ? 'персональный (Б)' : 'холодный старт (А)'}`);
+  if (profile) console.debug('[s5] профиль в промпте:\n' + profile);
   let body;
   try {
     body = JSON.stringify({
@@ -125,6 +128,8 @@ export async function analyzeWineList(images, signal = null) {
     });
     const json = await res.json();
     if (json.ok) {
+      // чем был профиль на момент анализа — для подписи в совете сомелье
+      json.data.profileMeta = { personal: !!profile, tastings: tastingsCount };
       await db.aiCache.put({
         id: cacheId,
         kind: 's5',

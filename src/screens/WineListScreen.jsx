@@ -5,7 +5,9 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db.js';
 import { compressImage } from '../utils/image.js';
 import { analyzeWineList } from '../api/ai.js';
+import { getPersonalThreshold } from '../ai/profile.js';
 import { pluralize } from '../utils/plural.js';
+import TasteProfileSheet from '../components/TasteProfileSheet.jsx';
 
 const SCAN_STATUSES = ['Читаю карту…', 'Советуюсь с сомелье…', 'Подбираю рекомендации…'];
 
@@ -35,6 +37,13 @@ export default function WineListScreen() {
   const scans = useLiveQuery(() =>
     db.restaurantScans.orderBy('date').reverse().toArray()
   );
+
+  // P19: путь к персональному сомелье-режиму
+  const [profileOpen, setProfileOpen] = useState(false);
+  const sommelier = useLiveQuery(async () => ({
+    threshold: await getPersonalThreshold(),
+    tastings: await db.tastings.count(),
+  }));
 
   const onFile = async (e) => {
     const file = e.target.files?.[0];
@@ -134,6 +143,33 @@ export default function WineListScreen() {
 
       {mode === 'list' ? (
         <div className="mt-2 space-y-2 px-4">
+          {sommelier && (
+            <button
+              onClick={() => setProfileOpen(true)}
+              className="block w-full rounded-xl bg-white p-3 text-left dark:bg-stone-900"
+            >
+              {sommelier.tastings >= sommelier.threshold ? (
+                <p className="text-sm font-medium text-wine-600 dark:text-wine-400">
+                  ✨ Сомелье-режим: персональный
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm">
+                    🎯 Сомелье изучает твой вкус: {sommelier.tastings} из {sommelier.threshold}{' '}
+                    дегустаций
+                  </p>
+                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700">
+                    <div
+                      className="h-full rounded-full bg-wine-600 dark:bg-wine-400"
+                      style={{
+                        width: `${Math.min(100, (sommelier.tastings / sommelier.threshold) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+            </button>
+          )}
           {(scans ?? []).map((s) => (
             <button
               key={s.id}
@@ -227,6 +263,8 @@ export default function WineListScreen() {
           )}
         </div>
       )}
+
+      <TasteProfileSheet open={profileOpen} onClose={() => setProfileOpen(false)} />
     </div>
   );
 }

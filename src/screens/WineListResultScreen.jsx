@@ -5,6 +5,7 @@ import { ArrowLeft, Plus, Sparkles, Star } from 'lucide-react';
 import { db } from '../db.js';
 import { addWine } from '../data/wines.js';
 import { normalizeName } from '../data/normalize.js';
+import { getPersonalThreshold } from '../ai/profile.js';
 import { lookupVivinoCached } from '../api/vivino.js';
 import { getCbrRates } from '../api/currency.js';
 import { analyzeWineList } from '../api/ai.js';
@@ -43,6 +44,12 @@ export default function WineListResultScreen() {
   const enrichedRef = useRef(false);
 
   const scan = useLiveQuery(() => db.restaurantScans.get(id).then((s) => s ?? null), [id]);
+
+  // P19: статус персонализации для подписи в совете сомелье
+  const sommelier = useLiveQuery(async () => ({
+    threshold: await getPersonalThreshold(),
+    tastings: await db.tastings.count(),
+  }));
 
   const positions = scan?.result?.positions ?? [];
   // рекомендованные — первыми, сохраняя исходный индекс для стейтов
@@ -219,6 +226,13 @@ export default function WineListResultScreen() {
           <p className="mt-1 text-sm text-stone-700 dark:text-stone-300">
             {scan.result.sommelier_note}
           </p>
+          {sommelier && (
+            <p className="mt-1.5 text-[11px] text-stone-400 dark:text-stone-500">
+              {(scan.result.profileMeta?.personal ?? sommelier.tastings >= sommelier.threshold)
+                ? `на основе твоих ${scan.result.profileMeta?.tastings ?? sommelier.tastings} дегустаций`
+                : `общие рекомендации · до персональных ${Math.max(1, sommelier.threshold - sommelier.tastings)} дегустаций`}
+            </p>
+          )}
         </div>
       )}
 
