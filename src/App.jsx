@@ -5,6 +5,7 @@ import ScanScreen from './screens/ScanScreen.jsx';
 import SettingsScreen from './screens/SettingsScreen.jsx';
 import StubScreen from './screens/StubScreen.jsx';
 import TastingScreen from './screens/TastingScreen.jsx';
+import TastingFormScreen from './screens/TastingFormScreen.jsx';
 import WineFormScreen from './screens/WineFormScreen.jsx';
 import WineScreen from './screens/WineScreen.jsx';
 
@@ -21,6 +22,7 @@ export default function App() {
             <Route path="/scan" element={<ScanScreen />} />
             <Route path="/wine/:id" element={<WineScreen />} />
             <Route path="/wine/:id/edit" element={<WineFormScreen mode="edit" />} />
+            <Route path="/wine/:id/taste" element={<TastingFormScreen />} />
             <Route path="/tasting/:id" element={<TastingScreen />} />
             <Route path="/stats" element={<StubScreen title="Статистика" />} />
             <Route path="/map" element={<StubScreen title="Карта" />} />

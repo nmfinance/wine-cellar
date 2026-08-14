@@ -890,7 +890,7 @@ export default function WineScreen() {
               Купил
             </button>
             <button
-              onClick={() => setToast('Скоро')}
+              onClick={() => navigate(`/wine/${wine.id}/taste`)}
               className="flex-1 rounded-lg border border-stone-300 py-3 text-sm font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
             >
               Новая дегустация
@@ -905,7 +905,7 @@ export default function WineScreen() {
               Купил снова
             </button>
             <button
-              onClick={() => setToast('Скоро')}
+              onClick={() => navigate(`/wine/${wine.id}/taste`)}
               className="flex-1 rounded-lg bg-wine-600 py-3 text-sm font-medium text-white dark:bg-wine-400 dark:text-stone-950"
             >
               🍷 Новая дегустация
@@ -913,7 +913,7 @@ export default function WineScreen() {
           </div>
         ) : (
           <button
-            onClick={() => setToast('Скоро')}
+            onClick={() => navigate(`/wine/${wine.id}/taste`)}
             className="w-full rounded-lg bg-wine-600 py-3 text-sm font-medium text-white dark:bg-wine-400 dark:text-stone-950"
           >
             🍷 Новая дегустация
