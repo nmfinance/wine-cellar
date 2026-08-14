@@ -1,9 +1,12 @@
 // Нормализация имён: дедупликация виноделен, скоринг матчей Vivino, поиск.
+// Пунктуация вырезается (P10.6: «&», кавычки и тире считались токенами
+// и роняли скоринг матча до low на честных совпадениях).
 export function normalizeName(str) {
   return String(str ?? '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zа-яё0-9\s]/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }

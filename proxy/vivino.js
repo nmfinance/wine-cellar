@@ -52,6 +52,66 @@ function extractJsonObject(text, start) {
   return null;
 }
 
+// Переводы вкусовых нот (ключевые слова отзывов Vivino)
+const FLAVOR_RU = {
+  cherry: 'вишня', 'black cherry': 'чёрная вишня', 'red fruit': 'красные ягоды',
+  raspberry: 'малина', strawberry: 'клубника', cranberry: 'клюква', plum: 'слива',
+  blackberry: 'ежевика', currant: 'смородина', 'black currant': 'чёрная смородина',
+  'dark fruit': 'тёмные ягоды', 'dried fruit': 'сухофрукты', fig: 'инжир', prune: 'чернослив',
+  oak: 'дуб', vanilla: 'ваниль', tobacco: 'табак', smoke: 'дым', toast: 'тосты',
+  leather: 'кожа', tar: 'дёготь', earthy: 'земля', mushroom: 'гриб', truffle: 'трюфель',
+  minerals: 'минералы', licorice: 'лакрица', chocolate: 'шоколад', coffee: 'кофе',
+  pepper: 'перец', spice: 'специи', spices: 'специи', clove: 'гвоздика', anise: 'анис',
+  rose: 'роза', violet: 'фиалка', floral: 'цветы', honey: 'мёд', butter: 'сливочное масло',
+  cream: 'сливки', almond: 'миндаль', hazelnut: 'фундук', caramel: 'карамель',
+  citrus: 'цитрус', lemon: 'лимон', lime: 'лайм', grapefruit: 'грейпфрут',
+  apple: 'яблоко', 'green apple': 'зелёное яблоко', pear: 'груша', peach: 'персик',
+  apricot: 'абрикос', melon: 'дыня', lychee: 'личи', tropical: 'тропические фрукты',
+  pineapple: 'ананас', mango: 'манго', 'passion fruit': 'маракуйя', papaya: 'папайя',
+  banana: 'банан', apricots: 'абрикос', petrol: 'петрольные ноты', wet_stone: 'мокрый камень',
+  cedar: 'кедр', 'forest floor': 'лесная подстилка', gravel: 'гравий', stone: 'камень',
+  orange: 'апельсин', 'orange zest': 'цедра апельсина', jam: 'джем', cinnamon: 'корица',
+  nutmeg: 'мускатный орех', mocha: 'мокко', 'dark chocolate': 'тёмный шоколад',
+};
+
+// Переводы гастропар (style.food)
+const FOOD_RU = {
+  beef: 'говядина', lamb: 'ягнятина', veal: 'телятина', pork: 'свинина', game: 'дичь',
+  'game (deer, venison)': 'дичь', poultry: 'птица', chicken: 'курица', duck: 'утка',
+  pasta: 'паста', pizza: 'пицца', cheese: 'сыр', 'mature and hard cheese': 'выдержанные сыры',
+  'mild and soft cheese': 'мягкие сыры', 'blue cheese': 'голубой сыр', 'goat cheese': 'козий сыр',
+  shellfish: 'морепродукты', 'shellfish, crab and lobster': 'морепродукты',
+  'lean fish': 'белая рыба', 'rich fish (salmon, tuna etc)': 'лосось и тунец', fish: 'рыба',
+  'spicy food': 'острая кухня', mushrooms: 'грибы', vegetarian: 'овощные блюда',
+  'cured meat': 'вяленое мясо', appetizers: 'закуски', 'appetizers and snacks': 'закуски',
+  aperitif: 'аперитив', 'fruity desserts': 'фруктовые десерты', 'sweet desserts': 'десерты',
+  'mediterranean dishes': 'средиземноморская кухня', 'asian food': 'азиатская кухня',
+};
+
+// Топ-6 нот по упоминаниям из отзывов (flavor[].primary_keywords)
+function extractFlavors(flavorGroups) {
+  if (!Array.isArray(flavorGroups)) return null;
+  const flat = flavorGroups
+    .flatMap((g) => g?.primary_keywords ?? [])
+    .filter((k) => k?.name && typeof k.count === 'number');
+  if (!flat.length) return null;
+  return flat
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6)
+    .map((k) => ({ name_ru: FLAVOR_RU[k.name.toLowerCase()] ?? k.name, mentions: k.count }));
+}
+
+// До 5 гастропар (style.food[].name)
+function extractFoods(foodList) {
+  if (!Array.isArray(foodList)) return null;
+  const foods = foodList
+    .map((f) => f?.name)
+    .filter(Boolean)
+    .slice(0, 5)
+    .map((name) => FOOD_RU[name.toLowerCase()] ?? name);
+  return foods.length ? foods : null;
+}
+
 // Вкусовая структура Vivino (шкала ~1–5, поля nullable) → 0–100
 function normalizeTaste(structure) {
   if (!structure) return null;
@@ -72,8 +132,11 @@ function mapVintageMatch(m) {
   return {
     name: v.wine?.name ?? null,
     winery: v.wine?.winery?.name ?? null,
-    wineId: v.wine?.id ?? null,
+    // строго числовой id того же матча — иначе url не строим
+    wineId: Number.isInteger(v.wine?.id) ? v.wine.id : null,
     taste: normalizeTaste(v.wine?.taste?.structure),
+    flavors: extractFlavors(v.wine?.taste?.flavor),
+    foods: extractFoods(v.wine?.style?.food),
     year: Number(v.year) || null,
     vintageRating: stats.ratings_average || null,
     vintageCount: stats.ratings_count ?? null,
@@ -158,9 +221,13 @@ async function lookupVivino(query, wantYear = null) {
       matchedName: `${m.name}${m.winery ? ` — ${m.winery}` : ''}`,
       matchedYear: picked.matchedYear,
       taste: m.taste,
+      flavors: m.flavors,
+      foods: m.foods,
       price: m.price,
       priceCurrency: m.price != null ? (data.market?.currency?.code ?? null) : null,
-      url: m.wineId ? `https://www.vivino.com/wines/${m.wineId}` : null,
+      // P10.6: /wines/{id} вёл на ЧУЖИЕ вина (эксперимент vivino-url-test);
+      // канонический формат — /w/{числовой id вина выбранного матча}
+      url: m.wineId != null ? `https://www.vivino.com/w/${m.wineId}` : null,
     },
   };
 }

@@ -1,5 +1,5 @@
 import { AI_URL, APP_KEY } from './config.js';
-import { PROMPT_S1, buildPromptS2 } from '../ai/prompts.js';
+import { PROMPT_S1, buildPromptS2, buildPromptS6 } from '../ai/prompts.js';
 
 const blobToBase64 = (blob) =>
   new Promise((resolve, reject) => {
@@ -41,13 +41,13 @@ export async function scanLabel(images, signal = null) {
   }
 }
 
-// S2: справка о винодельне (текстовый запрос, без фото)
-export async function askWineryInfo({ wineryName, region, country }) {
+// Текстовый вызов /ai без фото
+async function askText(kind, prompt) {
   try {
     const res = await fetch(`${AI_URL}/ai`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-App-Key': APP_KEY },
-      body: JSON.stringify({ kind: 's2', prompt: buildPromptS2({ wineryName, region, country }) }),
+      body: JSON.stringify({ kind, prompt }),
       signal: AbortSignal.timeout(30_000),
     });
     return await res.json();
@@ -55,3 +55,9 @@ export async function askWineryInfo({ wineryName, region, country }) {
     return { ok: false, error: navigator.onLine === false ? 'offline' : 'network' };
   }
 }
+
+// S2: справка о винодельне
+export const askWineryInfo = (winery) => askText('s2', buildPromptS2(winery));
+
+// S6: «глубже о вине» (кэш навсегда в wine.aiDeep)
+export const askDeepWine = (wine) => askText('s6', buildPromptS6(wine));

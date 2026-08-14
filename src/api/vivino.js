@@ -43,6 +43,24 @@ export async function lookupVivinoCached(query, year = null) {
   return result;
 }
 
+// «Обновить данные Vivino»: запрос мимо кэша с перезаписью кэш-записи
+export async function refreshVivino(query, year = null) {
+  const key = `${normalizeName(query)}|${year ?? ''}`;
+  const result = await lookupVivino(query, year);
+  if (result.ok || result.error === 'not_found') {
+    const now = new Date().toISOString();
+    await db.aiCache.put({
+      id: `vivino:${key}`,
+      kind: 'vivino',
+      key,
+      payload: result,
+      createdAt: now,
+      expiresAt: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    });
+  }
+  return result;
+}
+
 // Запрос для поиска: winery + name + первый сорт (сорт — только при
 // уверенном распознавании), нормализация пробелов.
 export function buildVivinoQuery(s1data) {

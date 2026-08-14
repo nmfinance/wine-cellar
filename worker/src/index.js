@@ -4,14 +4,14 @@
 import { safeParseJson } from './parse.js';
 
 const ALLOWED_ORIGINS = ['https://nmfinance.github.io', 'http://localhost:5173'];
-const TEMPERATURE_BY_KIND = { s1: 0.2, s2: 0.5, s3: 0.7, s4: 0.3, s5: 0.3 };
+const TEMPERATURE_BY_KIND = { s1: 0.2, s2: 0.5, s3: 0.7, s4: 0.3, s5: 0.3, s6: 0.6 };
 
 function corsHeaders(request) {
   const origin = request.headers.get('Origin');
   return {
     'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-App-Key',
+    'Access-Control-Allow-Headers': 'Content-Type, X-App-Key, X-Debug',
   };
 }
 
@@ -143,7 +143,41 @@ async function handleAi(request, env) {
       return json(request, 200, { ok: false, error: 'safety', model });
     }
     const text = (candidate?.content?.parts ?? []).map((p) => p.text ?? '').join('');
-    const parsed = safeParseJson(text);
+    let parsed = safeParseJson(text);
+    if (!parsed) {
+      // страховка из prompts.md: один повтор с требованием валидного JSON
+      // (длинные ответы Gemini иногда обрываются на невалидном JSON)
+      console.log(`[ai] ${model}: невалидный JSON, повтор`);
+      try {
+        const retryRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GEMINI_API_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...payload,
+              contents: [
+                {
+                  parts: [
+                    ...payload.contents[0].parts,
+                    { text: '\n\nТы вернул невалидный JSON. Верни тот же ответ строго в JSON, компактно.' },
+                  ],
+                },
+              ],
+            }),
+          }
+        );
+        if (retryRes.ok) {
+          const retryData = await retryRes.json();
+          const retryText = (retryData.candidates?.[0]?.content?.parts ?? [])
+            .map((p) => p.text ?? '')
+            .join('');
+          parsed = safeParseJson(retryText);
+        }
+      } catch {
+        // повтор не удался — отдаём bad_json ниже
+      }
+    }
     if (!parsed) return json(request, 502, { ok: false, error: 'bad_json', model });
     console.log(`[ai] ${model}: ok`);
     return json(request, 200, { ok: true, data: parsed, model });

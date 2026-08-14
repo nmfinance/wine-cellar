@@ -8,6 +8,7 @@ import { buildVivinoQuery, lookupVivinoCached } from '../api/vivino.js';
 import { matchScore } from '../api/score.js';
 import { addWine, updateWine } from '../data/wines.js';
 import { ensureWineryInfo } from '../data/wineries.js';
+import { ensureDeepInfo } from '../data/deep.js';
 import { WineForm } from './WineFormScreen.jsx';
 
 const COLOR_MAP = { красное: 'red', белое: 'white', розовое: 'rose', оранжевое: 'orange' };
@@ -129,6 +130,7 @@ export default function ScanScreen() {
       }))
     );
     await ensureWineryInfo(wine); // справка S2 грузится внутри асинхронно
+    ensureDeepInfo(wine); // S6 «глубже о вине» — асинхронно, один раз
     // Vivino — асинхронно, карточка подхватит через useLiveQuery
     if (d.winery || d.name) {
       const query = buildVivinoQuery(d);

@@ -64,10 +64,20 @@ async function fillWineryInfo(winery) {
     portfolio: d.portfolio ?? null,
     positioning: d.positioning ?? null,
     opinion: d.opinion ?? null,
+    history: d.history ?? null,
+    notableWines: d.notable_wines ?? null,
     locationHint: d.location_hint ?? null,
     aiSummary: d.opinion ?? null, // совместимость со старым полем
     infoStatus: 'ready',
     updatedAt: now(),
   });
   console.debug('[winery] справка сохранена:', winery.name);
+}
+
+// «Обновить справку»: повторный S2 с перезаписью — дообогащение старых записей
+export async function refreshWineryInfo(wineryId) {
+  const winery = await db.wineries.get(wineryId);
+  if (!winery) return;
+  await db.wineries.update(wineryId, { infoStatus: 'loading', updatedAt: now() });
+  await fillWineryInfo(winery);
 }

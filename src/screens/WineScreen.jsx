@@ -9,6 +9,7 @@ import {
   Heart,
   MapPin,
   Pencil,
+  RefreshCw,
   Search,
   Sparkles,
   Trash2,
@@ -16,8 +17,10 @@ import {
 } from 'lucide-react';
 import { db } from '../db.js';
 import { deleteWineCascade, moveTo, updateWine } from '../data/wines.js';
-import { lookupVivinoCached } from '../api/vivino.js';
+import { lookupVivinoCached, refreshVivino } from '../api/vivino.js';
 import { matchScore } from '../api/score.js';
+import { ensureDeepInfo } from '../data/deep.js';
+import { refreshWineryInfo } from '../data/wineries.js';
 import { PLACEHOLDER_BY_COLOR, formatPrice, scoreBadgeClasses } from '../theme.js';
 import PhotoLightbox from '../components/PhotoLightbox.jsx';
 import Toast from '../components/Toast.jsx';
@@ -176,6 +179,70 @@ function TasteProfile({ taste, source }) {
   );
 }
 
+// --- Блок «Глубже о вине» (S6) ------------------------------------------------
+
+function DeepBlock({ wine, defaultOpen }) {
+  const [open, setOpen] = useState(defaultOpen);
+  const deep = wine.aiDeep;
+  // блок показываем, если данные есть или их имеет смысл ждать
+  const expectable = wine.grapes?.length || wine.region || wine.appellation;
+  if (!deep && !expectable) return null;
+
+  return (
+    <div className="mx-4 mt-4 rounded-xl bg-wine-100 p-3 dark:bg-wine-900">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span className="flex items-center gap-1.5 text-sm font-medium text-wine-700 dark:text-wine-200">
+          <Sparkles className="size-4" /> Глубже о вине
+        </span>
+        <ChevronDown
+          className={`size-4 shrink-0 text-wine-400 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-2.5">
+          {!deep ? (
+            <p className="animate-pulse text-sm text-stone-500 dark:text-stone-400">
+              изучаю вино…
+            </p>
+          ) : (
+            <>
+              {deep.story && (
+                <p className="text-sm text-stone-700 dark:text-stone-300">{deep.story}</p>
+              )}
+              {deep.fun_fact && (
+                <p className="rounded-lg bg-white/60 px-3 py-2 text-sm text-stone-700 dark:bg-stone-950/30 dark:text-stone-300">
+                  💡 {deep.fun_fact}
+                </p>
+              )}
+              {deep.sommelier_tips?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-wine-700 dark:text-wine-200">
+                    На что обратить внимание
+                  </p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-sm text-stone-700 dark:text-stone-300">
+                    {deep.sommelier_tips.map((tip, i) => (
+                      <li key={i}>{tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {deep.image_association && (
+                <p className="text-sm text-stone-500 italic dark:text-stone-400">
+                  {deep.image_association}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --- Блок «О винодельне» ------------------------------------------------------
 
 const POSITIONING_LABEL = {
@@ -234,11 +301,25 @@ function WineryBlock({ wineryId, defaultOpen }) {
                     .join(' · ')}
                 </p>
               )}
+              {winery.history && <p>{winery.history}</p>}
               {winery.portfolio && (
                 <p className="text-xs text-stone-500 dark:text-stone-400">{winery.portfolio}</p>
               )}
               {opinion && <p>{opinion}</p>}
+              {winery.notableWines && (
+                <p className="text-xs text-stone-500 dark:text-stone-400">
+                  Знаковые вина: {winery.notableWines}
+                </p>
+              )}
             </>
+          )}
+          {!loading && (
+            <button
+              onClick={() => refreshWineryInfo(winery.id)}
+              className="flex items-center gap-1 text-[11px] font-medium text-wine-600 dark:text-wine-400"
+            >
+              <RefreshCw className="size-3" /> обновить справку
+            </button>
           )}
         </div>
       )}
@@ -336,6 +417,14 @@ export default function WineScreen() {
     [wine?.location?.rackId]
   );
 
+  // S6 для вин без aiDeep (ручные с сортом/регионом) — при первом открытии
+  useEffect(() => {
+    if (wine && !wine.aiDeep) ensureDeepInfo(wine);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wine?.id, wine?.aiDeep]);
+
+  const [vivinoRefreshing, setVivinoRefreshing] = useState(false);
+
   if (wine === undefined) return null;
   if (wine === null) {
     return (
@@ -426,6 +515,23 @@ export default function WineScreen() {
     await moveTo(wine.id, target);
     if (target === 'cellar') await updateWine(wine.id, { quantity: 1 });
     setScanBanner(target);
+  };
+
+  // «обновить данные Vivino» — повторный lookup мимо кэша
+  const onRefreshVivino = async () => {
+    setVivinoRefreshing(true);
+    const query = [wine.wineryName, wine.name].filter(Boolean).join(' ').trim();
+    const res = await refreshVivino(query, wine.nvFlag ? null : wine.year);
+    if (res.ok) {
+      const score = matchScore(query, res.data.matchedName);
+      await updateWine(wine.id, {
+        vivino: { ...res.data, matchScore: score, checkedAt: new Date().toISOString(), manual: false },
+      });
+      setToast('Данные Vivino обновлены');
+    } else {
+      setToast(res.error === 'not_found' ? 'На Vivino не нашлось' : 'Vivino недоступен');
+    }
+    setVivinoRefreshing(false);
   };
 
   return (
@@ -568,16 +674,55 @@ export default function WineScreen() {
           {vivinoSearchOpen && (
             <VivinoInlineSearch wine={wine} onDone={() => setVivinoSearchOpen(false)} />
           )}
-          {vivino.url && (
-            <a
-              href={vivino.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 block text-[13px] font-medium text-wine-600 dark:text-wine-400"
-            >
-              Открыть на Vivino ↗
-            </a>
+
+          {/* Ноты по отзывам */}
+          {vivino.flavors?.length > 0 && (
+            <div className="mt-2.5">
+              <p className="text-[11px] text-stone-400 dark:text-stone-500">
+                Ноты по отзывам Vivino
+              </p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {vivino.flavors.map((f) => (
+                  <span
+                    key={f.name_ru}
+                    className="rounded-full bg-stone-100 px-2 py-0.5 text-[11px] text-stone-600 dark:bg-stone-800 dark:text-stone-300"
+                  >
+                    {f.name_ru} · {f.mentions}
+                  </span>
+                ))}
+              </div>
+            </div>
           )}
+
+          {/* Гастропары */}
+          {vivino.foods?.length > 0 && (
+            <p className="mt-2 text-[13px] text-stone-600 dark:text-stone-300">
+              🍽 {vivino.foods.join(' · ')}
+            </p>
+          )}
+
+          <div className="mt-2 flex items-center justify-between">
+            {vivino.url ? (
+              <a
+                href={vivino.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[13px] font-medium text-wine-600 dark:text-wine-400"
+              >
+                Открыть на Vivino ↗
+              </a>
+            ) : (
+              <span />
+            )}
+            <button
+              onClick={onRefreshVivino}
+              disabled={vivinoRefreshing}
+              aria-label="Обновить данные Vivino"
+              className="flex items-center gap-1 text-[11px] font-medium text-stone-400 disabled:opacity-50 dark:text-stone-500"
+            >
+              <RefreshCw className={`size-3 ${vivinoRefreshing ? 'animate-spin' : ''}`} /> обновить
+            </button>
+          </div>
         </div>
       )}
 
@@ -645,16 +790,31 @@ export default function WineScreen() {
               </p>
             )}
           </div>
-          <a
-            href={`https://www.google.com/search?q=${encodeURIComponent(buyQuery)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2.5 block rounded-lg border border-wine-200 py-2 text-center text-[13px] font-medium text-wine-700 dark:border-wine-700 dark:text-wine-200"
-          >
-            🛒 Найти, где купить
-          </a>
+          <div className="mt-2.5 flex gap-2">
+            <a
+              href={`https://www.google.com/search?q=${encodeURIComponent(buyQuery)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 rounded-lg border border-wine-200 py-2 text-center text-[13px] font-medium text-wine-700 dark:border-wine-700 dark:text-wine-200"
+            >
+              🛒 Найти, где купить
+            </a>
+            {wine.wineryName && (
+              <a
+                href={`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(`${wine.wineryName} winery vineyard`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 rounded-lg border border-wine-200 py-2 text-center text-[13px] font-medium text-wine-700 dark:border-wine-700 dark:text-wine-200"
+              >
+                🏞 Виноградники
+              </a>
+            )}
+          </div>
         </div>
       )}
+
+      {/* Глубже о вине (S6) */}
+      <DeepBlock wine={wine} defaultOpen={!!scanBanner} />
 
       {/* О винодельне (полная справка) */}
       {wine.wineryId && <WineryBlock wineryId={wine.wineryId} defaultOpen={!!scanBanner} />}
