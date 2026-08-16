@@ -42,9 +42,147 @@ const TESTS = [
   { id: 'tileProxy', name: '2d · Тот же тайл через шлюз' },
   { id: 'tileNoSw', name: '3 · Тайл в обход Service Worker' },
   { id: 'webgl', name: '4 · WebGL' },
-  { id: 'minimap', name: '5 · Мини-карта (полная отрисовка)' },
+  { id: 'minimap', name: '5 · Мини-карта (стиль темы)' },
+  { id: 'minimapRaster', name: '5b · Мини-карта (изоляция: только растр)' },
   { id: 'tileAgain', name: '6 · Обычный тайл повторно (после всех)' },
 ];
+
+// 5b: встроенный минимальный стиль — прямые растровые URL, ни TileJSON, ни вектора
+const INLINE_RASTER_STYLE = {
+  version: 8,
+  sources: {
+    ne2: {
+      type: 'raster',
+      tiles: ['https://tiles.openfreemap.org/natural_earth/ne2sr/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      maxzoom: 6,
+    },
+  },
+  layers: [
+    { id: 'bg', type: 'background', paint: { 'background-color': '#dcd8d4' } },
+    { id: 'ne2', type: 'raster', source: 'ne2' },
+  ],
+};
+
+// P21.4: пульс requestAnimationFrame — НАТИВНЫЙ, без подмен: считаем кадры
+const rafPulse = (ms) =>
+  new Promise((resolve) => {
+    let frames = 0;
+    let stop = false;
+    const tick = () => {
+      frames += 1;
+      if (!stop) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    setTimeout(() => {
+      stop = true;
+      resolve(frames);
+    }, ms);
+  });
+
+// P21.4: инструментированный интегральный тест — мини-карта до idle за 15 с.
+// В extra попадает всё: запросы transformRequest, таймлайн событий, RAF-пульс.
+async function runMiniMapTest(container, styleArg, zoom, cancelledRef) {
+  const extra = [];
+  try {
+    // замер RAF до создания карты
+    const preFrames = await rafPulse(1000);
+    extra.push(`RAF до карты: ${preFrames} кадров/с${preFrames === 0 ? ' — ЗАМОРОЖЕН' : ''}`);
+
+    const t0 = performance.now();
+    const ts = () => `${String(Math.round(performance.now() - t0)).padStart(5)}мс`;
+
+    // transformRequest-логгер: каждый URL+тип, который MapLibre вообще запросил
+    const requests = [];
+    const route = await getMapRoute();
+    const transformRequest = (url, resourceType) => {
+      const proxied = route === 'proxy' ? toProxyUrl(url) : url;
+      requests.push(`${ts()} ${resourceType ?? '?'} ${proxied.slice(0, 110)}`);
+      return proxied !== url ? { url: proxied } : undefined;
+    };
+
+    const map = new MapLibreMap({
+      container,
+      style: styleArg,
+      center: [9.19, 45.46], // Милан — там же, где пробный тайл
+      zoom,
+      attributionControl: false,
+      interactive: false,
+      transformRequest,
+    });
+
+    // таймлайн событий; sourcedata шумный — пишем только смену состояния источника
+    const timeline = [];
+    const sourceState = {}; // sourceId → 'грузится' | 'loaded'
+    const evt = (line) => {
+      if (timeline.length < 40) timeline.push(`${ts()} ${line}`);
+    };
+    map.on('styledata', () => evt('styledata'));
+    map.on('dataloading', (e) => {
+      if (e.sourceId && sourceState[e.sourceId] !== 'грузится' && sourceState[e.sourceId] !== 'loaded') {
+        sourceState[e.sourceId] = 'грузится';
+        evt(`dataloading ${e.sourceId}`);
+      }
+    });
+    map.on('sourcedata', (e) => {
+      if (e.sourceId && e.isSourceLoaded && sourceState[e.sourceId] !== 'loaded') {
+        sourceState[e.sourceId] = 'loaded';
+        evt(`sourcedata ${e.sourceId} → loaded`);
+      }
+    });
+    const errors = [];
+    map.on('error', (e) => {
+      const msg = String(e.error?.message ?? e.error ?? '?');
+      errors.push(msg);
+      evt(`ERROR ${msg.slice(0, 80)}`);
+    });
+    let renders = 0;
+    map.on('render', () => {
+      renders += 1;
+      if (renders <= 3) evt(`render #${renders}`);
+    });
+
+    // RAF-пульс во время теста — параллельно ожиданию idle
+    let duringFrames = 0;
+    let pulseStop = false;
+    const pulseTick = () => {
+      duringFrames += 1;
+      if (!pulseStop) requestAnimationFrame(pulseTick);
+    };
+    requestAnimationFrame(pulseTick);
+
+    const outcome = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), 15_000);
+      map.on('idle', () => {
+        clearTimeout(timer);
+        evt('idle');
+        resolve(Math.round(performance.now() - t0));
+      });
+    });
+    pulseStop = true;
+
+    const tileReqs = requests.filter((r) => r.includes(' Tile ')).length;
+    const srcSummary = Object.entries(sourceState)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(', ') || 'ни один источник не начинал грузиться';
+    const verdict = `запросов тайлов: ${tileReqs} · кадров за тест: ${duringFrames}${duringFrames === 0 ? ' (RAF ЗАМОРОЖЕН)' : ''} · рендеров: ${renders} · источники: ${srcSummary}`;
+
+    extra.push(`— вердикт: ${verdict}`);
+    extra.push(`— запросы MapLibre (${requests.length}):`, ...requests.slice(0, 25));
+    if (requests.length > 25) extra.push(`  …ещё ${requests.length - 25}`);
+    extra.push(`— таймлайн:`, ...timeline);
+
+    if (cancelledRef.current) map.remove();
+    else setTimeout(() => map.remove(), 500);
+
+    if (outcome != null) {
+      return { ok: true, detail: `отрисована за ${outcome} мс · ${verdict}`, extra };
+    }
+    return { ok: false, detail: `не дорисовалась за 15 с · ${verdict}`, extra };
+  } catch (e) {
+    return { ok: false, detail: `${e.name}: ${e.message}`, extra };
+  }
+}
 
 export default function MapCheckScreen() {
   const navigate = useNavigate();
@@ -53,12 +191,14 @@ export default function MapCheckScreen() {
   const [running, setRunning] = useState(true);
   const [toast, setToast] = useState(null);
   const miniRef = useRef(null);
+  const miniRasterRef = useRef(null);
+  const cancelledRef = useRef(false);
   const route = useLiveQuery(getMapRoute) ?? 'direct';
 
   useEffect(() => {
-    let cancelled = false;
+    cancelledRef.current = false;
     const set = (id, res) => {
-      if (!cancelled) setResults((r) => ({ ...r, [id]: res }));
+      if (!cancelledRef.current) setResults((r) => ({ ...r, [id]: res }));
     };
 
     (async () => {
@@ -161,42 +301,13 @@ export default function MapCheckScreen() {
         set('webgl', { ok: false, detail: `${e.name}: ${e.message}` });
       }
 
-      // 5 · интегральный: мини-карта дорисовалась до idle за 15 с?
-      try {
-        const t0 = performance.now();
-        const map = new MapLibreMap({
-          container: miniRef.current,
-          style: effectiveStyleUrl(),
-          center: [9.19, 45.46], // Милан — там же, где пробный тайл
-          zoom: 10,
-          attributionControl: false,
-          interactive: false,
-        });
-        const errors = [];
-        map.on('error', (e) => errors.push(String(e.error?.message ?? e.error)));
-        const verdict = await new Promise((resolve) => {
-          const timer = setTimeout(() => {
-            // детали на момент таймаута — что успело, что нет
-            let facts = [];
-            try {
-              facts.push(`стиль: ${map.style?._loaded ? 'загружен' : 'НЕ загружен'}`);
-              facts.push(`тайлы: ${map.areTilesLoaded() ? 'загружены' : 'НЕ загружены'}`);
-            } catch {}
-            if (errors.length) facts.push(`ошибки: ${errors.slice(0, 2).join('; ')}`);
-            else facts.push('ошибок нет (молча)');
-            resolve({ ok: false, detail: `не дорисовалась за 15 с · ${facts.join(' · ')}` });
-          }, 15_000);
-          map.on('idle', () => {
-            clearTimeout(timer);
-            resolve({ ok: true, detail: `отрисована за ${Math.round(performance.now() - t0)} мс` });
-          });
-        });
-        set('minimap', verdict);
-        if (cancelled) map.remove();
-        else setTimeout(() => map.remove(), 500);
-      } catch (e) {
-        set('minimap', { ok: false, detail: `${e.name}: ${e.message}` });
-      }
+      // 5 · интегральный: мини-карта со стилем темы (полная инструментация)
+      set('minimap', await runMiniMapTest(miniRef.current, effectiveStyleUrl(), 10, cancelledRef));
+
+      // 5b · изоляция: встроенный минимальный стиль (background + растр ne2sr
+      // прямыми URL, без TileJSON и вектора) — отделяет «MapLibre не живёт»
+      // от «спотыкается о TileJSON/вектор»
+      set('minimapRaster', await runMiniMapTest(miniRasterRef.current, INLINE_RASTER_STYLE, 4, cancelledRef));
 
       // 6 · обычный тайл повторно ПОСЛЕ всех — эффект порядка/прогрева
       if (tileUrl) {
@@ -208,11 +319,11 @@ export default function MapCheckScreen() {
         set('tileAgain', { ok: false, detail: 'пропущен: URL тайла не получен (см. 2a)' });
       }
 
-      if (!cancelled) setRunning(false);
+      if (!cancelledRef.current) setRunning(false);
     })();
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -221,11 +332,14 @@ export default function MapCheckScreen() {
     const lines = [
       `Диагностика карты · ${new Date().toISOString()}`,
       `UA: ${navigator.userAgent}`,
-      `Тема: ${document.documentElement.classList.contains('dark') ? 'тёмная' : 'светлая'} · онлайн: ${navigator.onLine}`,
+      `Тема: ${document.documentElement.classList.contains('dark') ? 'тёмная' : 'светлая'} · онлайн: ${navigator.onLine} · маршрут: ${route}`,
       '',
-      ...TESTS.map((t) => {
+      ...TESTS.flatMap((t) => {
         const r = results[t.id];
-        return `${r ? (r.ok ? 'OK ' : 'FAIL') : '...'} · ${t.name}: ${r?.detail ?? 'не выполнялся'}`;
+        return [
+          `${r ? (r.ok ? 'OK ' : 'FAIL') : '...'} · ${t.name}: ${r?.detail ?? 'не выполнялся'}`,
+          ...(r?.extra ?? []).map((x) => `    ${x}`),
+        ];
       }),
     ];
     try {
@@ -296,10 +410,14 @@ export default function MapCheckScreen() {
         })}
       </div>
 
-      {/* контейнер мини-карты — виден, это часть теста */}
+      {/* контейнеры мини-карт — видны, это часть тестов 5 и 5b */}
       <div
         ref={miniRef}
         className="mt-3 h-[200px] w-full overflow-hidden rounded-xl bg-stone-200 dark:bg-stone-800"
+      />
+      <div
+        ref={miniRasterRef}
+        className="mt-2 h-[200px] w-full overflow-hidden rounded-xl bg-stone-200 dark:bg-stone-800"
       />
 
       <button
