@@ -12,11 +12,13 @@ import { pluralize } from '../utils/plural.js';
 import WineryBlock from '../components/WineryBlock.jsx';
 import WineRow from '../components/WineRow.jsx';
 
-import { FALLBACK_STYLE, LIGHT_STYLE, STYLE_TIMEOUT_MS, darkStyle } from '../map/styles.js';
+import { FALLBACK_STYLE, LIGHT_STYLE, STYLE_TIMEOUT_MS, darkStyle, simpleStyle } from '../map/styles.js';
 import {
+  getMapMode,
   getMapRoute,
   getTileLoader,
   makeTransformRequest,
+  setMapMode,
   setMapRoute,
   setTileLoader,
 } from '../api/mapRoute.js';
@@ -63,6 +65,7 @@ export default function MapScreen() {
   const retryRef = useRef(null);
   const routeRef = useRef('direct'); // 'direct' | 'proxy' — маршрут тайлов (P21.3)
   const loaderRef = useRef('worker'); // 'worker' | 'main' — загрузчик тайлов (P21.6)
+  const modeRef = useRef('full'); // 'full' | 'simple' — режим карты (P21.7)
   const [sheetId, setSheetId] = useState(null);
   const [sheetFull, setSheetFull] = useState(false);
   const [refining, setRefining] = useState(null); // {id, mode:'refine'|'place'}
@@ -120,8 +123,11 @@ export default function MapScreen() {
     let styleArrived = false; // style.load текущей попытки дошёл
     let styleTimer = null;
 
-    const effectiveStyle = () =>
-      document.documentElement.classList.contains('dark') ? darkStyle() : LIGHT_STYLE;
+    const effectiveStyle = () => {
+      const dark = document.documentElement.classList.contains('dark');
+      if (modeRef.current === 'simple') return simpleStyle(dark);
+      return dark ? darkStyle() : LIGHT_STYLE;
+    };
 
     const addLayers = (map) => {
       if (map.getSource('wineries')) return;
@@ -209,13 +215,19 @@ export default function MapScreen() {
       }, STYLE_TIMEOUT_MS);
     };
 
-    // P21.5/P21.6: вотчдог уровня тайлов — стиль загрузился, но источники
+    // P21.5–P21.7: вотчдог уровня тайлов — стиль загрузился, но источники
     // не доехали до idle за 12 с. Эскалация: шаг 1 — резервный маршрут
-    // (proxy), шаг 2 — загрузка тайлов главным потоком (mt://), дальше —
-    // баннер «Повторить» без циклов.
+    // (proxy), шаг 2 — загрузка главным потоком (mt://), шаг 3 — упрощённый
+    // растровый режим, дальше — баннер «Повторить» без циклов.
     let tileWatchdogTimer = null;
     const escalationStep = () =>
-      routeRef.current === 'direct' ? 0 : loaderRef.current === 'worker' ? 1 : 2;
+      modeRef.current === 'simple'
+        ? 3
+        : routeRef.current === 'direct'
+          ? 0
+          : loaderRef.current === 'worker'
+            ? 1
+            : 2;
     const armTileWatchdog = (map, styleArg) => {
       if (styleArg === FALLBACK_STYLE) return;
       clearTimeout(tileWatchdogTimer);
@@ -239,8 +251,12 @@ export default function MapScreen() {
           loaderRef.current = 'main';
           setTileLoader('main');
           setToast('Карта переключена в совместимый режим');
+        } else if (step === 2) {
+          modeRef.current = 'simple';
+          setMapMode('simple');
+          setToast('Карта в упрощённом режиме');
         } else {
-          // обе ступени исчерпаны — честный баннер, карта остаётся как есть
+          // все ступени исчерпаны — честный баннер, карта остаётся как есть
           setMapFailed(true);
           return;
         }
@@ -313,11 +329,12 @@ export default function MapScreen() {
       spawn(effectiveStyle());
     };
 
-    // маршрут и загрузчик тайлов читаются из meta ДО первого spawn
+    // маршрут, загрузчик и режим карты читаются из meta ДО первого spawn
     ensureMainThreadProtocol();
-    Promise.all([getMapRoute(), getTileLoader()]).then(([mode, loader]) => {
-      routeRef.current = mode;
+    Promise.all([getMapRoute(), getTileLoader(), getMapMode()]).then(([route, loader, mode]) => {
+      routeRef.current = route;
       loaderRef.current = loader;
+      modeRef.current = mode;
       if (!disposed) spawn(effectiveStyle());
     });
 

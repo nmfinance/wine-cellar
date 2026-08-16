@@ -21,3 +21,32 @@ export const STYLE_TIMEOUT_MS = 10_000;
 
 // тайл Милана для проб (z10: lon 9.19, lat 45.46)
 export const PROBE_TILE = { z: 10, x: 538, y: 366 };
+
+// P21.7: упрощённый режим — гарантированно без векторного конвейера:
+// фон + растр ne2 (доказан «ок» на устройстве владельца), точки/кластеры
+// добавляются обычным addLayers (GeoJSON-тайлы локальные, без network-fetch)
+export const simpleStyle = (dark) => ({
+  version: 8,
+  sources: {
+    ne2_shaded: {
+      type: 'raster',
+      tiles: ['https://tiles.openfreemap.org/natural_earth/ne2sr/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      maxzoom: 6,
+    },
+  },
+  layers: [
+    {
+      id: 'background',
+      type: 'background',
+      paint: { 'background-color': dark ? '#1c1917' : '#e7e5e4' },
+    },
+    {
+      id: 'ne2',
+      type: 'raster',
+      source: 'ne2_shaded',
+      // в тёмной теме приглушаем растр, чтобы точки читались
+      paint: dark ? { 'raster-brightness-max': 0.55, 'raster-saturation': -0.35 } : {},
+    },
+  ],
+});

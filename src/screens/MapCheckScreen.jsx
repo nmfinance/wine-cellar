@@ -6,13 +6,15 @@ import { ArrowLeft, Check, Copy, X } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { PROBE_TILE, effectiveStyleUrl } from '../map/styles.js';
 import {
+  getMapMode,
   getMapRoute,
   getTileLoader,
+  setMapMode,
   setMapRoute,
   setTileLoader,
   toProxyUrl,
 } from '../api/mapRoute.js';
-import { ensureMainThreadProtocol } from '../map/mtProtocol.js';
+import { ensureMainThreadProtocol, getMtStats, resetMtStats } from '../map/mtProtocol.js';
 import { usePageTitle } from '../utils/title.js';
 import Toast from '../components/Toast.jsx';
 
@@ -52,6 +54,7 @@ const TESTS = [
   { id: 'minimap', name: '5 · Мини-карта (стиль темы)' },
   { id: 'minimapRaster', name: '5b · Мини-карта (изоляция: только растр)' },
   { id: 'workerFetch', name: '5c · fetch из голого воркера vs главный поток' },
+  { id: 'maplibreFetch', name: '5d · кандидаты: fetch как MapLibre + Cache API' },
   { id: 'tileAgain', name: '6 · Обычный тайл повторно (после всех)' },
 ];
 
@@ -107,6 +110,7 @@ async function runMiniMapTest(container, styleArg, zoom, cancelledRef) {
     const route = await getMapRoute();
     const loader = await getTileLoader();
     ensureMainThreadProtocol();
+    resetMtStats(); // счётчики вызовов mt-обработчика — на этот прогон
     const transformRequest = (url, resourceType) => {
       let out = route === 'proxy' && url.startsWith('https://tiles.openfreemap.org/') ? toProxyUrl(url) : url;
       if (loader === 'main' && (resourceType === 'Tile' || resourceType === 'Glyphs') && !out.startsWith('mt://')) {
@@ -215,7 +219,16 @@ async function runMiniMapTest(container, styleArg, zoom, cancelledRef) {
     const srcSummary = Object.entries(sourceState)
       .map(([k, v]) => `${k}=${v}`)
       .join(', ') || 'ни один источник не начинал грузиться';
-    const verdict = `запросов тайлов: ${tileRows.length} (ок: ${tilesOk}) · кадров за тест: ${duringFrames}${duringFrames === 0 ? ' (RAF ЗАМОРОЖЕН)' : ''} · рендеров: ${renders} · источники: ${srcSummary}`;
+    // P21.7: mt-счётчики — «вектор 0/2» при loader='main' означает, что
+    // GR-сообщение из воркера не дошло (обрыв ВНУТРИ воркера, до запроса)
+    let mtLine = '';
+    if (loader === 'main') {
+      const mt = getMtStats();
+      const reqVector = requests.filter((r) => r.url.includes('.pbf') && !r.url.includes('/fonts/')).length;
+      const reqGlyphs = requests.filter((r) => r.url.includes('/fonts/')).length;
+      mtLine = ` · mt вызван: вектор ${mt.vector}/${reqVector}, глифы ${mt.glyphs}/${reqGlyphs}, растр ${mt.raster}`;
+    }
+    const verdict = `запросов тайлов: ${tileRows.length} (ок: ${tilesOk}) · кадров за тест: ${duringFrames}${duringFrames === 0 ? ' (RAF ЗАМОРОЖЕН)' : ''} · рендеров: ${renders} · источники: ${srcSummary}${mtLine}`;
 
     extra.push(`— вердикт: ${verdict}`);
     extra.push(
@@ -252,6 +265,7 @@ export default function MapCheckScreen() {
   const cancelledRef = useRef(false);
   const route = useLiveQuery(getMapRoute) ?? 'direct';
   const tileLoader = useLiveQuery(getTileLoader) ?? 'worker';
+  const mapMode = useLiveQuery(getMapMode) ?? 'full';
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -422,6 +436,97 @@ export default function MapCheckScreen() {
         set('workerFetch', { ok: false, detail: 'пропущен: URL тайла не получен (см. 2a)' });
       }
 
+      // 5d · добить кандидатов (P21.7): (a) fetch как MapLibre из воркера —
+      // те же Request-опции, что в makeFetchRequest (referrer, signal,
+      // чтение arrayBuffer); (b) Cache API в воркере; (c) то же в главном
+      if (tileUrl) {
+        const routeNow2 = await getMapRoute();
+        const u5d = `${routeNow2 === 'proxy' ? toProxyUrl(tileUrl) : tileUrl}${tileUrl.includes('?') ? '&' : '?'}c5d=1`;
+        const referrer = location.href;
+
+        const workerPart = await new Promise((resolve) => {
+          let done = false;
+          const finish = (v) => { if (!done) { done = true; resolve(v); } };
+          try {
+            const code = `self.onmessage = async (e) => {
+              const { url, referrer } = e.data;
+              const out = [];
+              // (a) точный путь makeFetchRequest из maplibre 6.3
+              try {
+                const t0 = Date.now();
+                const ctrl = new AbortController();
+                const req = new Request(url, { method: 'GET', referrer, signal: ctrl.signal });
+                const r = await fetch(req);
+                const b = await r.arrayBuffer();
+                out.push('fetch-как-MapLibre: HTTP ' + r.status + ' \\u00b7 ' + (Date.now() - t0) + ' \\u043c\\u0441 \\u00b7 ' + b.byteLength + ' \\u0431');
+              } catch (err) { out.push('fetch-как-MapLibre: ' + String(err)); }
+              // (b) Cache API в воркере: open → put → match
+              try {
+                if (!self.caches) { out.push('Cache API: недоступен в воркере'); }
+                else {
+                  let t = Date.now();
+                  const c = await caches.open('map-check-5d');
+                  const tOpen = Date.now() - t;
+                  t = Date.now();
+                  await c.put(url + '&cachetest=1', new Response(new ArrayBuffer(1024), { status: 200 }));
+                  const tPut = Date.now() - t;
+                  t = Date.now();
+                  const hit = await c.match(url + '&cachetest=1');
+                  const tMatch = Date.now() - t;
+                  await caches.delete('map-check-5d');
+                  out.push('Cache API: open ' + tOpen + ' / put ' + tPut + ' / match ' + tMatch + ' \\u043c\\u0441, hit=' + !!hit);
+                }
+              } catch (err) { out.push('Cache API: ' + String(err)); }
+              self.postMessage(out.join(' ; '));
+            };`;
+            const w = new Worker(URL.createObjectURL(new Blob([code], { type: 'application/javascript' })));
+            const timer = setTimeout(() => { w.terminate(); finish('ПОВИС: воркер молчит 10 с'); }, 10_000);
+            w.onmessage = (e) => { clearTimeout(timer); w.terminate(); finish(e.data); };
+            w.onerror = (e) => { clearTimeout(timer); w.terminate(); finish(`воркер упал: ${e.message}`); };
+            w.postMessage({ url: u5d, referrer });
+          } catch (e) {
+            finish(`воркер не создался: ${e.message}`);
+          }
+        });
+
+        // (c) контраст: то же в главном потоке
+        let mainPart;
+        try {
+          const t0 = performance.now();
+          const ctrl = new AbortController();
+          const req = new Request(`${u5d}&main=1`, { method: 'GET', referrer, signal: ctrl.signal });
+          const r = await fetch(req);
+          const b = await r.arrayBuffer();
+          mainPart = `HTTP ${r.status} · ${Math.round(performance.now() - t0)} мс · ${fmtSize(b.byteLength)}`;
+        } catch (e) {
+          mainPart = String(e);
+        }
+        let mainCache;
+        try {
+          let t = performance.now();
+          const c = await caches.open('map-check-5d-main');
+          const tOpen = Math.round(performance.now() - t);
+          t = performance.now();
+          await c.put(`${u5d}&mc=1`, new Response(new ArrayBuffer(1024), { status: 200 }));
+          const tPut = Math.round(performance.now() - t);
+          t = performance.now();
+          const hit = await c.match(`${u5d}&mc=1`);
+          const tMatch = Math.round(performance.now() - t);
+          await caches.delete('map-check-5d-main');
+          mainCache = `open ${tOpen} / put ${tPut} / match ${tMatch} мс, hit=${!!hit}`;
+        } catch (e) {
+          mainCache = String(e);
+        }
+
+        const hung = String(workerPart).includes('ПОВИС');
+        set('maplibreFetch', {
+          ok: !hung,
+          detail: `воркер → ${workerPart} · главный поток → fetch: ${mainPart}; Cache API: ${mainCache}`,
+        });
+      } else {
+        set('maplibreFetch', { ok: false, detail: 'пропущен: URL тайла не получен (см. 2a)' });
+      }
+
       // 6 · обычный тайл повторно ПОСЛЕ всех — эффект порядка/прогрева
       if (tileUrl) {
         const r = await probe(`${tileUrl}?again=${Math.random().toString(36).slice(2)}`, {
@@ -445,7 +550,7 @@ export default function MapCheckScreen() {
     const lines = [
       `Диагностика карты · ${new Date().toISOString()}`,
       `UA: ${navigator.userAgent}`,
-      `Тема: ${document.documentElement.classList.contains('dark') ? 'тёмная' : 'светлая'} · онлайн: ${navigator.onLine} · маршрут: ${route} · тайлы: ${tileLoader}`,
+      `Тема: ${document.documentElement.classList.contains('dark') ? 'тёмная' : 'светлая'} · онлайн: ${navigator.onLine} · маршрут: ${route} · тайлы: ${tileLoader} · карта: ${mapMode}`,
       '',
       ...TESTS.flatMap((t) => {
         const r = results[t.id];
@@ -495,6 +600,15 @@ export default function MapCheckScreen() {
           options: [
             ['worker', 'Воркеры'],
             ['main', 'Главный поток'],
+          ],
+        },
+        {
+          label: 'Карта',
+          value: mapMode,
+          onPick: setMapMode,
+          options: [
+            ['full', 'Полная'],
+            ['simple', 'Упрощённая'],
           ],
         },
       ].map(({ label, value, onPick, options }) => (

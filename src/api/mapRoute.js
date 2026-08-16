@@ -27,6 +27,16 @@ export async function setTileLoader(value) {
   await db.meta.put({ key: 'tileLoader', value });
 }
 
+// P21.7: режим карты. 'full' — векторный стиль, 'simple' — растр + точки
+// (гарантированный выход для устройств с проклятым векторным конвейером)
+export async function getMapMode() {
+  return (await db.meta.get('mapMode'))?.value ?? 'full';
+}
+
+export async function setMapMode(value) {
+  await db.meta.put({ key: 'mapMode', value });
+}
+
 // ?v=2 пробивает клиентские кэши, отравленные 403-ответами с Cache-Control
 // (баг P21.3, исправлен в P21.5); функция query не форвардит — upstream чист
 export const toProxyUrl = (url) =>
