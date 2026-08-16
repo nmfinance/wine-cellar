@@ -62,6 +62,7 @@ export default function MapScreen() {
   const [mapFailed, setMapFailed] = useState(false); // стиль не загрузился → серый fallback
   const [debugError, setDebugError] = useState(null); // текст ошибки при ?debug=1
   const [toast, setToast] = useState(null);
+  const [escStatus, setEscStatus] = useState(null); // «Пробую резервный маршрут… 2/4»
   const retryRef = useRef(null);
   const routeRef = useRef('direct'); // 'direct' | 'proxy' — маршрут тайлов (P21.3)
   const loaderRef = useRef('worker'); // 'worker' | 'main' — загрузчик тайлов (P21.6)
@@ -247,23 +248,30 @@ export default function MapScreen() {
           routeRef.current = 'proxy';
           setMapRoute('proxy');
           setToast('Карта переключена на резервный маршрут');
+          setEscStatus('Пробую резервный маршрут… 2/4');
         } else if (step === 1) {
           loaderRef.current = 'main';
           setTileLoader('main');
           setToast('Карта переключена в совместимый режим');
+          setEscStatus('Пробую совместимый режим… 3/4');
         } else if (step === 2) {
           modeRef.current = 'simple';
           setMapMode('simple');
           setToast('Карта в упрощённом режиме');
+          setEscStatus('Упрощённый режим… 4/4');
         } else {
           // все ступени исчерпаны — честный баннер, карта остаётся как есть
+          setEscStatus(null);
           setMapFailed(true);
           return;
         }
         armStyleTimeout();
         spawn(effectiveStyle());
       }, 12_000);
-      map.on('idle', () => clearTimeout(tileWatchdogTimer));
+      map.on('idle', () => {
+        clearTimeout(tileWatchdogTimer);
+        setEscStatus(null); // дорисовалась — статус эскалации больше не нужен
+      });
     };
 
     // создать (или пересоздать) инстанс карты с данным стилем
@@ -492,6 +500,13 @@ export default function MapScreen() {
       {debugError && (
         <p className="absolute top-24 left-1/2 max-w-[90%] -translate-x-1/2 truncate rounded-lg bg-red-600/90 px-3 py-1.5 text-[11px] text-white">
           {debugError}
+        </p>
+      )}
+
+      {/* P21.8: статус эскалации — владелец видит, что процесс идёт */}
+      {escStatus && !mapFailed && (
+        <p className="absolute top-14 left-1/2 -translate-x-1/2 animate-pulse rounded-full bg-stone-900/80 px-3 py-1.5 text-[12px] whitespace-nowrap text-white">
+          {escStatus}
         </p>
       )}
 

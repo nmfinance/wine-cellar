@@ -582,6 +582,14 @@ export default function MapCheckScreen() {
         что именно не доезжает.
       </p>
 
+      {/* P21.8: матричный автотест всех комбинаций */}
+      <button
+        onClick={() => navigate('/map-matrix')}
+        className="mt-3 w-full rounded-xl bg-wine-600 py-3 text-sm font-medium text-white dark:bg-wine-400 dark:text-stone-950"
+      >
+        🔬 Полная диагностика (все 8 комбинаций)
+      </button>
+
       {/* P21.3/P21.6: ручное управление маршрутом и загрузчиком тайлов */}
       {[
         {

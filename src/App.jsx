@@ -7,6 +7,7 @@ import CellarScreen from './screens/CellarScreen.jsx';
 // MapLibre тяжёлый — чанки карты и её диагностики грузятся лениво
 const MapScreen = lazy(() => import('./screens/MapScreen.jsx'));
 const MapCheckScreen = lazy(() => import('./screens/MapCheckScreen.jsx'));
+const MapMatrixScreen = lazy(() => import('./screens/MapMatrixScreen.jsx'));
 import CellarSettingsScreen from './screens/CellarSettingsScreen.jsx';
 import BackupScreen from './screens/BackupScreen.jsx';
 import ScanScreen from './screens/ScanScreen.jsx';
@@ -51,6 +52,14 @@ export default function App() {
               element={
                 <Suspense fallback={null}>
                   <MapCheckScreen />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/map-matrix"
+              element={
+                <Suspense fallback={null}>
+                  <MapMatrixScreen />
                 </Suspense>
               }
             />
