@@ -4,8 +4,9 @@ import ErrorBoundary from './components/ErrorBoundary.jsx';
 import UpdateToast from './components/UpdateToast.jsx';
 import CellarScreen from './screens/CellarScreen.jsx';
 
-// MapLibre тяжёлый — чанк карты грузится только на /map
+// MapLibre тяжёлый — чанки карты и её диагностики грузятся лениво
 const MapScreen = lazy(() => import('./screens/MapScreen.jsx'));
+const MapCheckScreen = lazy(() => import('./screens/MapCheckScreen.jsx'));
 import CellarSettingsScreen from './screens/CellarSettingsScreen.jsx';
 import BackupScreen from './screens/BackupScreen.jsx';
 import ScanScreen from './screens/ScanScreen.jsx';
@@ -42,6 +43,14 @@ export default function App() {
               element={
                 <Suspense fallback={null}>
                   <MapScreen />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/map-check"
+              element={
+                <Suspense fallback={null}>
+                  <MapCheckScreen />
                 </Suspense>
               }
             />

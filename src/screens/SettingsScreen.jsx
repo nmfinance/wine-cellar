@@ -8,6 +8,7 @@ import {
   DatabaseBackup,
   Eraser,
   Info,
+  MapPinned,
   Palette,
   Star,
   Warehouse,
@@ -138,6 +139,7 @@ export default function SettingsScreen() {
       sub: { text: `v${version}`, cls: subCls },
       onTap: () => setSheet('about'),
     },
+    { icon: MapPinned, label: 'Диагностика карты', onTap: () => navigate('/map-check') },
   ];
 
   return (

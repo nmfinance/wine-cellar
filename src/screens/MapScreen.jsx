@@ -12,20 +12,7 @@ import { pluralize } from '../utils/plural.js';
 import WineryBlock from '../components/WineryBlock.jsx';
 import WineRow from '../components/WineRow.jsx';
 
-const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
-// P21.1: НЕ styles/dark — тот на малых зумах чёрный по дизайну (фон 12,12,12,
-// вода 27,27,29 — на телефоне неотличимы, карта выглядит сплошным чёрным).
-// fiord — тёмный стиль с читаемым контрастом суши и воды.
-// DEV-хук: window.__mapStyleOverride подменяет тёмный стиль (тест fallback)
-const darkStyle = () =>
-  (import.meta.env.DEV && window.__mapStyleOverride) || 'https://tiles.openfreemap.org/styles/fiord';
-// деградация (офлайн/битый стиль/таймаут): точки живут на сером фоне
-const FALLBACK_STYLE = {
-  version: 8,
-  sources: {},
-  layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#d6d3d1' } }],
-};
-const STYLE_TIMEOUT_MS = 10_000;
+import { FALLBACK_STYLE, LIGHT_STYLE, STYLE_TIMEOUT_MS, darkStyle } from '../map/styles.js';
 
 const scoreColor = (avg) => (avg >= 8 ? '#059669' : avg >= 5 ? '#d97706' : '#dc2626');
 
@@ -399,6 +386,12 @@ export default function MapScreen() {
       {mapFailed && (
         <div className="absolute top-14 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-amber-100 py-1 pr-1 pl-3 text-[12px] whitespace-nowrap text-amber-800 dark:bg-amber-950 dark:text-amber-200">
           Не удалось загрузить карту
+          <button
+            onClick={() => navigate('/map-check')}
+            className="rounded-full px-1.5 py-1 font-medium underline"
+          >
+            Проверить
+          </button>
           <button
             onClick={() => retryRef.current?.()}
             className="rounded-full bg-amber-600 px-2.5 py-1 font-medium text-white"
