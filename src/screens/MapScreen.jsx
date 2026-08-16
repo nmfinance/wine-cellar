@@ -201,6 +201,35 @@ export default function MapScreen() {
       }, STYLE_TIMEOUT_MS);
     };
 
+    // P21.5: вотчдог уровня тайлов — стиль загрузился, но источники не
+    // доехали до idle за 12 с (симптом: вектор запрошен и висит без ответа).
+    // Однократно: только на прямом маршруте, на второй карте не взводится.
+    let tileWatchdogUsed = false;
+    let tileWatchdogTimer = null;
+    const armTileWatchdog = (map, styleArg) => {
+      if (tileWatchdogUsed || styleArg === FALLBACK_STYLE || routeRef.current !== 'direct') return;
+      clearTimeout(tileWatchdogTimer);
+      tileWatchdogTimer = setTimeout(() => {
+        if (disposed || fellBack || mapRef.current !== map) return;
+        let stuck = false;
+        try {
+          for (const id of Object.keys(map.getStyle()?.sources ?? {})) {
+            if (!map.isSourceLoaded(id)) stuck = true;
+          }
+        } catch {
+          stuck = false;
+        }
+        if (!stuck) return;
+        tileWatchdogUsed = true;
+        routeRef.current = 'proxy';
+        setMapRoute('proxy');
+        setToast('Карта переключена на резервный маршрут');
+        armStyleTimeout();
+        spawn(effectiveStyle());
+      }, 12_000);
+      map.on('idle', () => clearTimeout(tileWatchdogTimer));
+    };
+
     // создать (или пересоздать) инстанс карты с данным стилем
     const spawn = (styleArg) => {
       const prev = mapRef.current;
@@ -226,6 +255,7 @@ export default function MapScreen() {
         styleArrived = true;
         clearTimeout(styleTimer);
         addLayers(map);
+        armTileWatchdog(map, styleArg);
       });
       map.on('error', (e) => {
         const msg = String(e.error?.message ?? e.error ?? 'map error');
@@ -280,6 +310,7 @@ export default function MapScreen() {
     return () => {
       disposed = true;
       clearTimeout(styleTimer);
+      clearTimeout(tileWatchdogTimer);
       window.removeEventListener('themechange', onTheme);
       markerRef.current?.remove();
       mapRef.current?.remove();

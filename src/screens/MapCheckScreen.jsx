@@ -92,13 +92,26 @@ async function runMiniMapTest(container, styleArg, zoom, cancelledRef) {
     const t0 = performance.now();
     const ts = () => `${String(Math.round(performance.now() - t0)).padStart(5)}мс`;
 
-    // transformRequest-логгер: каждый URL+тип, который MapLibre вообще запросил
-    const requests = [];
+    // transformRequest-логгер: каждый URL+тип + СТАТУС завершения (P21.5)
+    const requests = []; // {t, type, url, key, status}
+    const tileKey = (u) => u.match(/\/(\d+)\/(\d+)\/(\d+)\.\w+/)?.slice(1).join('/') ?? null;
     const route = await getMapRoute();
     const transformRequest = (url, resourceType) => {
       const proxied = route === 'proxy' ? toProxyUrl(url) : url;
-      requests.push(`${ts()} ${resourceType ?? '?'} ${proxied.slice(0, 110)}`);
+      requests.push({
+        t: ts(),
+        type: resourceType ?? '?',
+        url: proxied,
+        key: resourceType === 'Tile' ? tileKey(proxied) : null,
+        status: 'запрошен',
+      });
       return proxied !== url ? { url: proxied } : undefined;
+    };
+    const markTile = (canonical, status) => {
+      if (!canonical) return;
+      const key = `${canonical.z}/${canonical.x}/${canonical.y}`;
+      const row = requests.find((r) => r.key === key && (r.status === 'запрошен' || status.startsWith('ошибка')));
+      if (row) row.status = status;
     };
 
     const map = new MapLibreMap({
@@ -129,12 +142,17 @@ async function runMiniMapTest(container, styleArg, zoom, cancelledRef) {
         sourceState[e.sourceId] = 'loaded';
         evt(`sourcedata ${e.sourceId} → loaded`);
       }
+      // завершившиеся тайлы — статус в лог запросов
+      const canon = e.tile?.tileID?.canonical ?? e.coord?.canonical;
+      if (canon && e.tile?.state === 'loaded') markTile(canon, 'ок');
     });
     const errors = [];
     map.on('error', (e) => {
       const msg = String(e.error?.message ?? e.error ?? '?');
       errors.push(msg);
-      evt(`ERROR ${msg.slice(0, 80)}`);
+      evt(`ERROR ${msg}`); // полный текст, без обрезки — тут живут URL ошибок
+      const canon = e.tile?.tileID?.canonical ?? e.coord?.canonical;
+      if (canon) markTile(canon, `ошибка: ${msg}`);
     });
     let renders = 0;
     map.on('render', () => {
@@ -161,22 +179,47 @@ async function runMiniMapTest(container, styleArg, zoom, cancelledRef) {
     });
     pulseStop = true;
 
-    const tileReqs = requests.filter((r) => r.includes(' Tile ')).length;
+    // незавершённые тайлы — повисли
+    for (const r of requests) if (r.key && r.status === 'запрошен') r.status = 'ПОВИС (нет ответа за тест)';
+
+    const tileRows = requests.filter((r) => r.type === 'Tile');
+    const tilesOk = tileRows.filter((r) => r.status === 'ок').length;
+    // честный критерий (P21.5): idle И все источники loaded И (при векторных
+    // источниках) хотя бы один успешный тайл — иначе «нарисован фон»
+    let hasVector = false;
+    let allSourcesLoaded = true;
+    try {
+      const sources = map.getStyle()?.sources ?? {};
+      hasVector = Object.values(sources).some((s) => s.type === 'vector');
+      for (const id of Object.keys(sources)) {
+        if (!map.isSourceLoaded(id)) allSourcesLoaded = false;
+      }
+    } catch {
+      allSourcesLoaded = false;
+    }
+
     const srcSummary = Object.entries(sourceState)
       .map(([k, v]) => `${k}=${v}`)
       .join(', ') || 'ни один источник не начинал грузиться';
-    const verdict = `запросов тайлов: ${tileReqs} · кадров за тест: ${duringFrames}${duringFrames === 0 ? ' (RAF ЗАМОРОЖЕН)' : ''} · рендеров: ${renders} · источники: ${srcSummary}`;
+    const verdict = `запросов тайлов: ${tileRows.length} (ок: ${tilesOk}) · кадров за тест: ${duringFrames}${duringFrames === 0 ? ' (RAF ЗАМОРОЖЕН)' : ''} · рендеров: ${renders} · источники: ${srcSummary}`;
 
     extra.push(`— вердикт: ${verdict}`);
-    extra.push(`— запросы MapLibre (${requests.length}):`, ...requests.slice(0, 25));
+    extra.push(
+      `— запросы MapLibre (${requests.length}):`,
+      ...requests.slice(0, 25).map((r) => `${r.t} ${r.type} [${r.status}] ${r.url.slice(0, 110)}`)
+    );
     if (requests.length > 25) extra.push(`  …ещё ${requests.length - 25}`);
     extra.push(`— таймлайн:`, ...timeline);
 
     if (cancelledRef.current) map.remove();
     else setTimeout(() => map.remove(), 500);
 
-    if (outcome != null) {
+    const vectorOk = !hasVector || tilesOk >= 1;
+    if (outcome != null && allSourcesLoaded && vectorOk) {
       return { ok: true, detail: `отрисована за ${outcome} мс · ${verdict}`, extra };
+    }
+    if (outcome != null) {
+      return { ok: false, detail: `idle без вектора: нарисован фон · ${verdict}`, extra };
     }
     return { ok: false, detail: `не дорисовалась за 15 с · ${verdict}`, extra };
   } catch (e) {

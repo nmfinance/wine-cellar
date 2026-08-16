@@ -136,7 +136,9 @@ async function handleTiles(event, pathname) {
       statusCode: tile.status,
       headers: {
         'Content-Type': tile.contentType,
-        'Cache-Control': 'public, max-age=86400',
+        // P21.5: кэшировать можно ТОЛЬКО успех — закэшированный на сутки 403
+        // (ошибка whitelist) отравлял клиентов даже после починки сервера
+        'Cache-Control': tile.status === 200 ? 'public, max-age=86400' : 'no-store',
         ...corsHeaders(event),
       },
       body: tile.body.toString('base64'),

@@ -4,10 +4,13 @@
 // НЕ открытый прокси: только GET и только whitelist путей.
 
 const UPSTREAM = 'https://tiles.openfreemap.org/';
-const WHITELIST = ['styles/', 'planet/', 'natural_earth/', 'fonts/', 'sprites/'];
+const WHITELIST = ['styles', 'planet', 'natural_earth', 'fonts', 'sprites'];
 const TIMEOUT_MS = 15_000;
 
-const allowed = (path) => WHITELIST.some((p) => path.startsWith(p));
+// P21.5: разрешаем и голое имя раздела — TileJSON живёт на пути `planet`
+// БЕЗ слэша (whitelist со `startsWith('planet/')` отдавал 403 и молча
+// обезглавливал весь векторный конвейер в прокси-режиме)
+const allowed = (path) => WHITELIST.some((p) => path === p || path.startsWith(p + '/'));
 
 // path — часть URL после /tiles/ (уже без query)
 async function fetchTile(path) {
