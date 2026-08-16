@@ -1,8 +1,10 @@
 // Микро-прокси «Мой погреб»: единственный серверный компонент проекта.
-// Яндекс Cloud Functions, HTTP-вызов. Роутинг: POST /ai (GigaChat), GET /vivino.
+// Яндекс Cloud Functions, HTTP-вызов.
+// Роутинг: POST /ai (GigaChat), GET /vivino, GET /tiles/* (P21.3).
 const { safeParseJson } = require('./parse.js');
 const gigachat = require('./gigachat.js');
 const { lookupVivino } = require('./vivino.js');
+const { fetchTile } = require('./tiles.js');
 
 // Прод на GitHub Pages + локальная разработка
 const ALLOWED_ORIGINS = ['https://nmfinance.github.io', 'http://localhost:5173'];
@@ -40,6 +42,12 @@ module.exports.handler = async (event) => {
   const pathname = (event.url ?? event.path ?? '/').split('?')[0];
 
   if (method === 'OPTIONS') return { statusCode: 204, headers: corsHeaders(event) };
+
+  // /tiles/* — ДО проверки ключа: MapLibre не умеет свои заголовки без
+  // transformRequest-возни, а GET + whitelist путей безопасны и без ключа.
+  if (method === 'GET' && pathname.includes('/tiles/')) {
+    return handleTiles(event, pathname);
+  }
 
   // Лёгкий заслон от чужих: ключ виден в клиентском коде, это НЕ криптозащита —
   // просто отсекает случайных сканеров, чтобы не жгли токены GigaChat.
@@ -112,6 +120,31 @@ async function handleAi(event) {
   }
   if (!parsed) return reply(event, 502, { ok: false, error: 'bad_json' });
   return reply(event, 200, { ok: true, data: parsed });
+}
+
+// GET /tiles/{путь} → https://tiles.openfreemap.org/{путь}, тело как есть.
+// Cache-Control сутки: браузер кэширует тайлы сам, повторные сессии
+// в функцию не ходят.
+async function handleTiles(event, pathname) {
+  // шлюз кладёт greedy-параметр в event.params.path; запасной путь — из URL
+  const path =
+    event.params?.path ?? pathname.slice(pathname.indexOf('/tiles/') + '/tiles/'.length);
+  if (!path) return reply(event, 400, { ok: false, error: 'bad_request' });
+  try {
+    const tile = await fetchTile(path);
+    return {
+      statusCode: tile.status,
+      headers: {
+        'Content-Type': tile.contentType,
+        'Cache-Control': 'public, max-age=86400',
+        ...corsHeaders(event),
+      },
+      body: tile.body.toString('base64'),
+      isBase64Encoded: true,
+    };
+  } catch (err) {
+    return reply(event, 502, { ok: false, error: 'tiles_upstream' }, err);
+  }
 }
 
 async function handleVivino(event) {

@@ -16,3 +16,15 @@ paths:
       x-yc-apigateway-integration:
         type: cloud_functions
         function_id: "{{FUNCTION_ID}}"
+  # P21.3: резервный маршрут тайлов карты (wildcard, greedy-параметр)
+  /tiles/{path+}:
+    x-yc-apigateway-any-method:
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      x-yc-apigateway-integration:
+        type: cloud_functions
+        function_id: "{{FUNCTION_ID}}"

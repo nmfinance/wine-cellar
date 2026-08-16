@@ -24,7 +24,7 @@ $zip = Join-Path $env:TEMP 'pogreb-proxy.zip'
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::Open($zip, 'Create')
-foreach ($name in 'index.js', 'gigachat.js', 'vivino.js', 'parse.js', 'package.json') {
+foreach ($name in 'index.js', 'gigachat.js', 'vivino.js', 'parse.js', 'tiles.js', 'package.json') {
     [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, (Join-Path $proxyDir $name), $name) | Out-Null
 }
 [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, (Join-Path $proxyDir 'certs\russiantrustedca.pem'), 'certs/russiantrustedca.pem') | Out-Null

@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Map as MapLibreMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { ArrowLeft, Check, Copy, X } from 'lucide-react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { PROBE_TILE, effectiveStyleUrl } from '../map/styles.js';
+import { getMapRoute, setMapRoute, toProxyUrl } from '../api/mapRoute.js';
 import { usePageTitle } from '../utils/title.js';
 import Toast from '../components/Toast.jsx';
 
@@ -37,9 +39,11 @@ const TESTS = [
   { id: 'tile', name: '2a · Векторный тайл (Милан)' },
   { id: 'glyphs', name: '2b · Глифы (шрифт)' },
   { id: 'sprite', name: '2c · Спрайт' },
+  { id: 'tileProxy', name: '2d · Тот же тайл через шлюз' },
   { id: 'tileNoSw', name: '3 · Тайл в обход Service Worker' },
   { id: 'webgl', name: '4 · WebGL' },
   { id: 'minimap', name: '5 · Мини-карта (полная отрисовка)' },
+  { id: 'tileAgain', name: '6 · Обычный тайл повторно (после всех)' },
 ];
 
 export default function MapCheckScreen() {
@@ -49,6 +53,7 @@ export default function MapCheckScreen() {
   const [running, setRunning] = useState(true);
   const [toast, setToast] = useState(null);
   const miniRef = useRef(null);
+  const route = useLiveQuery(getMapRoute) ?? 'direct';
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +120,14 @@ export default function MapCheckScreen() {
           set('sprite', await probe(`${style.sprite}.json`));
         } else {
           set('sprite', { ok: false, detail: 'стиль без спрайта' });
+        }
+
+        // 2d · тот же тайл через наш шлюз — прямое сравнение маршрутов
+        if (tileUrl) {
+          const r = await probe(toProxyUrl(tileUrl));
+          set('tileProxy', { ...r, detail: `${r.detail} · ${new URL(toProxyUrl(tileUrl)).host}` });
+        } else {
+          set('tileProxy', { ok: false, detail: 'пропущен: URL тайла не получен (см. 2a)' });
         }
 
         // 3 · тот же тайл мимо SW и HTTP-кэша; расхождение с 2a = виноват SW
@@ -185,6 +198,16 @@ export default function MapCheckScreen() {
         set('minimap', { ok: false, detail: `${e.name}: ${e.message}` });
       }
 
+      // 6 · обычный тайл повторно ПОСЛЕ всех — эффект порядка/прогрева
+      if (tileUrl) {
+        const r = await probe(`${tileUrl}?again=${Math.random().toString(36).slice(2)}`, {
+          cache: 'no-store',
+        });
+        set('tileAgain', r);
+      } else {
+        set('tileAgain', { ok: false, detail: 'пропущен: URL тайла не получен (см. 2a)' });
+      }
+
       if (!cancelled) setRunning(false);
     })();
 
@@ -226,6 +249,27 @@ export default function MapCheckScreen() {
         Проверяет каждое звено карты по отдельности. Скопируй отчёт и отправь — по нему видно,
         что именно не доезжает.
       </p>
+
+      {/* P21.3: ручное управление маршрутом тайлов */}
+      <div className="mt-3 flex items-center gap-2 rounded-xl bg-white p-3 dark:bg-stone-900">
+        <span className="flex-1 text-sm">Маршрут тайлов</span>
+        {[
+          ['direct', 'Прямой'],
+          ['proxy', 'Через шлюз'],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setMapRoute(key)}
+            className={`rounded-full border px-3 py-1 text-[13px] transition-colors ${
+              route === key
+                ? 'border-wine-600 bg-wine-600 text-white dark:border-wine-400 dark:bg-wine-400 dark:text-stone-950'
+                : 'border-stone-300 text-stone-600 dark:border-stone-600 dark:text-stone-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       <div className="mt-4 space-y-1.5">
         {TESTS.map((t) => {

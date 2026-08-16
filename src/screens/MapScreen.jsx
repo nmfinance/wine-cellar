@@ -13,6 +13,8 @@ import WineryBlock from '../components/WineryBlock.jsx';
 import WineRow from '../components/WineRow.jsx';
 
 import { FALLBACK_STYLE, LIGHT_STYLE, STYLE_TIMEOUT_MS, darkStyle } from '../map/styles.js';
+import { getMapRoute, makeTransformRequest, setMapRoute } from '../api/mapRoute.js';
+import Toast from '../components/Toast.jsx';
 
 const scoreColor = (avg) => (avg >= 8 ? '#059669' : avg >= 5 ? '#d97706' : '#dc2626');
 
@@ -50,7 +52,9 @@ export default function MapScreen() {
   const [mapReady, setMapReady] = useState(false);
   const [mapFailed, setMapFailed] = useState(false); // стиль не загрузился → серый fallback
   const [debugError, setDebugError] = useState(null); // текст ошибки при ?debug=1
+  const [toast, setToast] = useState(null);
   const retryRef = useRef(null);
+  const routeRef = useRef('direct'); // 'direct' | 'proxy' — маршрут тайлов (P21.3)
   const [sheetId, setSheetId] = useState(null);
   const [sheetFull, setSheetFull] = useState(false);
   const [refining, setRefining] = useState(null); // {id, mode:'refine'|'place'}
@@ -171,12 +175,21 @@ export default function MapScreen() {
       setMapReady(true);
     };
 
-    // P21.1: единый путь деградации — сетевой отказ, битый стиль и таймаут
-    // ведут в серый fallback с живыми точками; «Повторить» пробует заново.
+    // P21.1: единый путь деградации — сетевой отказ, битый стиль и таймаут.
+    // P21.3: первая ступень — переключиться на резервный маршрут через шлюз;
+    // если упал уже и он — серый fallback с живыми точками и «Повторить».
     const failToFallback = () => {
       if (fellBack || disposed) return;
-      fellBack = true;
       clearTimeout(styleTimer);
+      if (routeRef.current === 'direct') {
+        routeRef.current = 'proxy';
+        setMapRoute('proxy'); // meta запоминает — следующие сессии сразу через шлюз
+        setToast('Карта переключена на резервный маршрут');
+        armStyleTimeout();
+        spawn(effectiveStyle());
+        return;
+      }
+      fellBack = true;
       setMapFailed(true);
       spawn(FALLBACK_STYLE);
     };
@@ -203,6 +216,8 @@ export default function MapScreen() {
         center: view?.center ?? [15, 46],
         zoom: view?.zoom ?? 3.2,
         attributionControl: { compact: true }, // атрибуция OSM/OpenFreeMap обязательна
+        // режим proxy: все запросы карты переписываются на наш шлюз
+        transformRequest: makeTransformRequest(routeRef),
       });
       mapRef.current = map;
       if (import.meta.env.DEV) window.__map = map; // для консольной отладки
@@ -248,7 +263,11 @@ export default function MapScreen() {
       spawn(effectiveStyle());
     };
 
-    spawn(effectiveStyle());
+    // маршрут тайлов читается из meta ДО первого spawn
+    getMapRoute().then((mode) => {
+      routeRef.current = mode;
+      if (!disposed) spawn(effectiveStyle());
+    });
 
     // переключение темы вживую: событие от applyTheme (настройка или ОС)
     const onTheme = () => {
@@ -405,6 +424,8 @@ export default function MapScreen() {
           {debugError}
         </p>
       )}
+
+      <Toast message={toast} onDone={() => setToast(null)} />
 
       {/* Пустое состояние */}
       {points?.length === 0 && (
