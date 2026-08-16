@@ -13,7 +13,14 @@ import WineryBlock from '../components/WineryBlock.jsx';
 import WineRow from '../components/WineRow.jsx';
 
 import { FALLBACK_STYLE, LIGHT_STYLE, STYLE_TIMEOUT_MS, darkStyle } from '../map/styles.js';
-import { getMapRoute, makeTransformRequest, setMapRoute } from '../api/mapRoute.js';
+import {
+  getMapRoute,
+  getTileLoader,
+  makeTransformRequest,
+  setMapRoute,
+  setTileLoader,
+} from '../api/mapRoute.js';
+import { ensureMainThreadProtocol } from '../map/mtProtocol.js';
 import Toast from '../components/Toast.jsx';
 
 const scoreColor = (avg) => (avg >= 8 ? '#059669' : avg >= 5 ? '#d97706' : '#dc2626');
@@ -55,6 +62,7 @@ export default function MapScreen() {
   const [toast, setToast] = useState(null);
   const retryRef = useRef(null);
   const routeRef = useRef('direct'); // 'direct' | 'proxy' — маршрут тайлов (P21.3)
+  const loaderRef = useRef('worker'); // 'worker' | 'main' — загрузчик тайлов (P21.6)
   const [sheetId, setSheetId] = useState(null);
   const [sheetFull, setSheetFull] = useState(false);
   const [refining, setRefining] = useState(null); // {id, mode:'refine'|'place'}
@@ -201,13 +209,15 @@ export default function MapScreen() {
       }, STYLE_TIMEOUT_MS);
     };
 
-    // P21.5: вотчдог уровня тайлов — стиль загрузился, но источники не
-    // доехали до idle за 12 с (симптом: вектор запрошен и висит без ответа).
-    // Однократно: только на прямом маршруте, на второй карте не взводится.
-    let tileWatchdogUsed = false;
+    // P21.5/P21.6: вотчдог уровня тайлов — стиль загрузился, но источники
+    // не доехали до idle за 12 с. Эскалация: шаг 1 — резервный маршрут
+    // (proxy), шаг 2 — загрузка тайлов главным потоком (mt://), дальше —
+    // баннер «Повторить» без циклов.
     let tileWatchdogTimer = null;
+    const escalationStep = () =>
+      routeRef.current === 'direct' ? 0 : loaderRef.current === 'worker' ? 1 : 2;
     const armTileWatchdog = (map, styleArg) => {
-      if (tileWatchdogUsed || styleArg === FALLBACK_STYLE || routeRef.current !== 'direct') return;
+      if (styleArg === FALLBACK_STYLE) return;
       clearTimeout(tileWatchdogTimer);
       tileWatchdogTimer = setTimeout(() => {
         if (disposed || fellBack || mapRef.current !== map) return;
@@ -220,10 +230,20 @@ export default function MapScreen() {
           stuck = false;
         }
         if (!stuck) return;
-        tileWatchdogUsed = true;
-        routeRef.current = 'proxy';
-        setMapRoute('proxy');
-        setToast('Карта переключена на резервный маршрут');
+        const step = escalationStep();
+        if (step === 0) {
+          routeRef.current = 'proxy';
+          setMapRoute('proxy');
+          setToast('Карта переключена на резервный маршрут');
+        } else if (step === 1) {
+          loaderRef.current = 'main';
+          setTileLoader('main');
+          setToast('Карта переключена в совместимый режим');
+        } else {
+          // обе ступени исчерпаны — честный баннер, карта остаётся как есть
+          setMapFailed(true);
+          return;
+        }
         armStyleTimeout();
         spawn(effectiveStyle());
       }, 12_000);
@@ -245,8 +265,8 @@ export default function MapScreen() {
         center: view?.center ?? [15, 46],
         zoom: view?.zoom ?? 3.2,
         attributionControl: { compact: true }, // атрибуция OSM/OpenFreeMap обязательна
-        // режим proxy: все запросы карты переписываются на наш шлюз
-        transformRequest: makeTransformRequest(routeRef),
+        // proxy: запросы через шлюз; main: Tile/Glyphs через mt:// (P21.6)
+        transformRequest: makeTransformRequest(routeRef, loaderRef),
       });
       mapRef.current = map;
       if (import.meta.env.DEV) window.__map = map; // для консольной отладки
@@ -293,9 +313,11 @@ export default function MapScreen() {
       spawn(effectiveStyle());
     };
 
-    // маршрут тайлов читается из meta ДО первого spawn
-    getMapRoute().then((mode) => {
+    // маршрут и загрузчик тайлов читаются из meta ДО первого spawn
+    ensureMainThreadProtocol();
+    Promise.all([getMapRoute(), getTileLoader()]).then(([mode, loader]) => {
       routeRef.current = mode;
+      loaderRef.current = loader;
       if (!disposed) spawn(effectiveStyle());
     });
 

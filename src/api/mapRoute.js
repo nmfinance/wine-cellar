@@ -16,6 +16,17 @@ export async function setMapRoute(value) {
   await db.meta.put({ key: 'mapRoute', value });
 }
 
+// P21.6: загрузчик тайлов. 'worker' — штатные воркеры MapLibre (дефолт),
+// 'main' — векторные тайлы и глифы через mt:// главным потоком
+// (устройства, где fetch внутри воркеров виснет)
+export async function getTileLoader() {
+  return (await db.meta.get('tileLoader'))?.value ?? 'worker';
+}
+
+export async function setTileLoader(value) {
+  await db.meta.put({ key: 'tileLoader', value });
+}
+
 // ?v=2 пробивает клиентские кэши, отравленные 403-ответами с Cache-Control
 // (баг P21.3, исправлен в P21.5); функция query не форвардит — upstream чист
 export const toProxyUrl = (url) =>
@@ -23,9 +34,10 @@ export const toProxyUrl = (url) =>
     ? `${TILES_PROXY_BASE}${url.slice(DIRECT_PREFIX.length)}${url.includes('?') ? '&' : '?'}v=2`
     : url;
 
-// transformRequest для MapLibre: в режиме proxy переписывает все запросы
-// карты (стиль, TileJSON, тайлы, глифы, спрайты) на шлюз
-export const makeTransformRequest = (routeRef) => (url, resourceType) => {
+// transformRequest для MapLibre: режим proxy переписывает запросы на шлюз,
+// режим tileLoader='main' оборачивает Tile и Glyphs в mt:// (главный поток;
+// растр/стиль/спрайты не трогаем — они и так грузятся главным потоком)
+export const makeTransformRequest = (routeRef, loaderRef = null) => (url, resourceType) => {
   // DEV-хук: window.__mapTileHang «вешает» тайлы прямого маршрута
   // (нерутируемый IP → запрос без ответа) — тест вотчдога P21.5
   if (
@@ -36,8 +48,16 @@ export const makeTransformRequest = (routeRef) => (url, resourceType) => {
   ) {
     return { url: 'https://10.255.255.1/hang.pbf' };
   }
-  if (routeRef.current === 'proxy' && url.startsWith(DIRECT_PREFIX)) {
-    return { url: toProxyUrl(url) };
+  let out = url;
+  if (routeRef.current === 'proxy' && out.startsWith(DIRECT_PREFIX)) {
+    out = toProxyUrl(out);
   }
-  return undefined;
+  if (
+    loaderRef?.current === 'main' &&
+    (resourceType === 'Tile' || resourceType === 'Glyphs') &&
+    !out.startsWith('mt://')
+  ) {
+    out = `mt://${out}`;
+  }
+  return out !== url ? { url: out } : undefined;
 };

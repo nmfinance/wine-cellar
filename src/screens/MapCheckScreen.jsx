@@ -5,7 +5,14 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { ArrowLeft, Check, Copy, X } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { PROBE_TILE, effectiveStyleUrl } from '../map/styles.js';
-import { getMapRoute, setMapRoute, toProxyUrl } from '../api/mapRoute.js';
+import {
+  getMapRoute,
+  getTileLoader,
+  setMapRoute,
+  setTileLoader,
+  toProxyUrl,
+} from '../api/mapRoute.js';
+import { ensureMainThreadProtocol } from '../map/mtProtocol.js';
 import { usePageTitle } from '../utils/title.js';
 import Toast from '../components/Toast.jsx';
 
@@ -44,6 +51,7 @@ const TESTS = [
   { id: 'webgl', name: '4 · WebGL' },
   { id: 'minimap', name: '5 · Мини-карта (стиль темы)' },
   { id: 'minimapRaster', name: '5b · Мини-карта (изоляция: только растр)' },
+  { id: 'workerFetch', name: '5c · fetch из голого воркера vs главный поток' },
   { id: 'tileAgain', name: '6 · Обычный тайл повторно (после всех)' },
 ];
 
@@ -92,20 +100,26 @@ async function runMiniMapTest(container, styleArg, zoom, cancelledRef) {
     const t0 = performance.now();
     const ts = () => `${String(Math.round(performance.now() - t0)).padStart(5)}мс`;
 
-    // transformRequest-логгер: каждый URL+тип + СТАТУС завершения (P21.5)
+    // transformRequest-логгер: каждый URL+тип + СТАТУС завершения (P21.5);
+    // прогоняем в ТЕКУЩИХ режимах meta — отчёт показывает рабочую конфигурацию
     const requests = []; // {t, type, url, key, status}
     const tileKey = (u) => u.match(/\/(\d+)\/(\d+)\/(\d+)\.\w+/)?.slice(1).join('/') ?? null;
     const route = await getMapRoute();
+    const loader = await getTileLoader();
+    ensureMainThreadProtocol();
     const transformRequest = (url, resourceType) => {
-      const proxied = route === 'proxy' ? toProxyUrl(url) : url;
+      let out = route === 'proxy' && url.startsWith('https://tiles.openfreemap.org/') ? toProxyUrl(url) : url;
+      if (loader === 'main' && (resourceType === 'Tile' || resourceType === 'Glyphs') && !out.startsWith('mt://')) {
+        out = `mt://${out}`;
+      }
       requests.push({
         t: ts(),
         type: resourceType ?? '?',
-        url: proxied,
-        key: resourceType === 'Tile' ? tileKey(proxied) : null,
+        url: out,
+        key: resourceType === 'Tile' ? tileKey(out) : null,
         status: 'запрошен',
       });
-      return proxied !== url ? { url: proxied } : undefined;
+      return out !== url ? { url: out } : undefined;
     };
     const markTile = (canonical, status) => {
       if (!canonical) return;
@@ -237,6 +251,7 @@ export default function MapCheckScreen() {
   const miniRasterRef = useRef(null);
   const cancelledRef = useRef(false);
   const route = useLiveQuery(getMapRoute) ?? 'direct';
+  const tileLoader = useLiveQuery(getTileLoader) ?? 'worker';
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -352,6 +367,61 @@ export default function MapCheckScreen() {
       // от «спотыкается о TileJSON/вектор»
       set('minimapRaster', await runMiniMapTest(miniRasterRef.current, INLINE_RASTER_STYLE, 4, cancelledRef));
 
+      // 5c · корень P21.6: fetch того же тайла из ГОЛОГО воркера vs главный
+      // поток — отделяет «воркеры вообще» от «воркеры MapLibre»
+      if (tileUrl) {
+        const routeNow = await getMapRoute();
+        const probeUrl = routeNow === 'proxy' ? toProxyUrl(tileUrl) : tileUrl;
+        // главный поток — контраст
+        const mainRes = await probe(`${probeUrl}${probeUrl.includes('?') ? '&' : '?'}c5main=1`, { cache: 'no-store' });
+        // голый dedicated worker
+        const workerRes = await new Promise((resolve) => {
+          let done = false;
+          const finish = (v) => { if (!done) { done = true; resolve(v); } };
+          try {
+            const code = `self.onmessage = async (e) => {
+              const t0 = Date.now();
+              try {
+                const r = await fetch(e.data, { cache: 'no-store' });
+                const b = await r.arrayBuffer();
+                self.postMessage({ ok: r.ok, status: r.status, ms: Date.now() - t0, size: b.byteLength });
+              } catch (err) {
+                self.postMessage({ ok: false, error: String(err), ms: Date.now() - t0 });
+              }
+            };`;
+            const w = new Worker(URL.createObjectURL(new Blob([code], { type: 'application/javascript' })));
+            const timer = setTimeout(() => {
+              w.terminate();
+              finish({ ok: false, detail: 'ПОВИС: нет ответа из воркера за 10 с' });
+            }, 10_000);
+            w.onmessage = (e) => {
+              clearTimeout(timer);
+              w.terminate();
+              const d = e.data;
+              finish(
+                d.ok
+                  ? { ok: true, detail: `HTTP ${d.status} · ${d.ms} мс · ${fmtSize(d.size)}` }
+                  : { ok: false, detail: `${d.error ?? `HTTP ${d.status}`} · ${d.ms} мс` }
+              );
+            };
+            w.onerror = (e) => {
+              clearTimeout(timer);
+              w.terminate();
+              finish({ ok: false, detail: `воркер упал: ${e.message}` });
+            };
+            w.postMessage(`${probeUrl}${probeUrl.includes('?') ? '&' : '?'}c5w=1`);
+          } catch (e) {
+            finish({ ok: false, detail: `воркер не создался: ${e.message}` });
+          }
+        });
+        set('workerFetch', {
+          ok: workerRes.ok,
+          detail: `воркер: ${workerRes.detail} · главный поток: ${mainRes.detail}`,
+        });
+      } else {
+        set('workerFetch', { ok: false, detail: 'пропущен: URL тайла не получен (см. 2a)' });
+      }
+
       // 6 · обычный тайл повторно ПОСЛЕ всех — эффект порядка/прогрева
       if (tileUrl) {
         const r = await probe(`${tileUrl}?again=${Math.random().toString(36).slice(2)}`, {
@@ -375,7 +445,7 @@ export default function MapCheckScreen() {
     const lines = [
       `Диагностика карты · ${new Date().toISOString()}`,
       `UA: ${navigator.userAgent}`,
-      `Тема: ${document.documentElement.classList.contains('dark') ? 'тёмная' : 'светлая'} · онлайн: ${navigator.onLine} · маршрут: ${route}`,
+      `Тема: ${document.documentElement.classList.contains('dark') ? 'тёмная' : 'светлая'} · онлайн: ${navigator.onLine} · маршрут: ${route} · тайлы: ${tileLoader}`,
       '',
       ...TESTS.flatMap((t) => {
         const r = results[t.id];
@@ -407,26 +477,44 @@ export default function MapCheckScreen() {
         что именно не доезжает.
       </p>
 
-      {/* P21.3: ручное управление маршрутом тайлов */}
-      <div className="mt-3 flex items-center gap-2 rounded-xl bg-white p-3 dark:bg-stone-900">
-        <span className="flex-1 text-sm">Маршрут тайлов</span>
-        {[
-          ['direct', 'Прямой'],
-          ['proxy', 'Через шлюз'],
-        ].map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setMapRoute(key)}
-            className={`rounded-full border px-3 py-1 text-[13px] transition-colors ${
-              route === key
-                ? 'border-wine-600 bg-wine-600 text-white dark:border-wine-400 dark:bg-wine-400 dark:text-stone-950'
-                : 'border-stone-300 text-stone-600 dark:border-stone-600 dark:text-stone-300'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* P21.3/P21.6: ручное управление маршрутом и загрузчиком тайлов */}
+      {[
+        {
+          label: 'Маршрут тайлов',
+          value: route,
+          onPick: setMapRoute,
+          options: [
+            ['direct', 'Прямой'],
+            ['proxy', 'Через шлюз'],
+          ],
+        },
+        {
+          label: 'Загрузка тайлов',
+          value: tileLoader,
+          onPick: setTileLoader,
+          options: [
+            ['worker', 'Воркеры'],
+            ['main', 'Главный поток'],
+          ],
+        },
+      ].map(({ label, value, onPick, options }) => (
+        <div key={label} className="mt-3 flex items-center gap-2 rounded-xl bg-white p-3 dark:bg-stone-900">
+          <span className="flex-1 text-sm">{label}</span>
+          {options.map(([key, name]) => (
+            <button
+              key={key}
+              onClick={() => onPick(key)}
+              className={`rounded-full border px-3 py-1 text-[13px] transition-colors ${
+                value === key
+                  ? 'border-wine-600 bg-wine-600 text-white dark:border-wine-400 dark:bg-wine-400 dark:text-stone-950'
+                  : 'border-stone-300 text-stone-600 dark:border-stone-600 dark:text-stone-300'
+              }`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      ))}
 
       <div className="mt-4 space-y-1.5">
         {TESTS.map((t) => {
