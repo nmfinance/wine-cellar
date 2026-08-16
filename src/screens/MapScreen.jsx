@@ -13,13 +13,19 @@ import WineryBlock from '../components/WineryBlock.jsx';
 import WineRow from '../components/WineRow.jsx';
 
 const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
-const DARK_STYLE = 'https://tiles.openfreemap.org/styles/dark';
-// офлайн: тайлов нет, но точки должны жить на сером фоне
+// P21.1: НЕ styles/dark — тот на малых зумах чёрный по дизайну (фон 12,12,12,
+// вода 27,27,29 — на телефоне неотличимы, карта выглядит сплошным чёрным).
+// fiord — тёмный стиль с читаемым контрастом суши и воды.
+// DEV-хук: window.__mapStyleOverride подменяет тёмный стиль (тест fallback)
+const darkStyle = () =>
+  (import.meta.env.DEV && window.__mapStyleOverride) || 'https://tiles.openfreemap.org/styles/fiord';
+// деградация (офлайн/битый стиль/таймаут): точки живут на сером фоне
 const FALLBACK_STYLE = {
   version: 8,
   sources: {},
   layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#d6d3d1' } }],
 };
+const STYLE_TIMEOUT_MS = 10_000;
 
 const scoreColor = (avg) => (avg >= 8 ? '#059669' : avg >= 5 ? '#d97706' : '#dc2626');
 
@@ -55,7 +61,9 @@ export default function MapScreen() {
   const markerRef = useRef(null);
   const flownRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
-  const [offline, setOffline] = useState(false);
+  const [mapFailed, setMapFailed] = useState(false); // стиль не загрузился → серый fallback
+  const [debugError, setDebugError] = useState(null); // текст ошибки при ?debug=1
+  const retryRef = useRef(null);
   const [sheetId, setSheetId] = useState(null);
   const [sheetFull, setSheetFull] = useState(false);
   const [refining, setRefining] = useState(null); // {id, mode:'refine'|'place'}
@@ -104,22 +112,19 @@ export default function MapScreen() {
   }, [points]);
   geojsonRef.current = geojson;
 
-  // --- карта: создаётся один раз, слои перевешиваются на каждый style.load ---
+  // --- карта: слои перевешиваются на каждый style.load; при провале стиля
+  // инстанс ПЕРЕСОЗДАЁТСЯ (setStyle поверх упавшего начального стиля MapLibre
+  // молча игнорирует — проверено в P21.1) ---
   useEffect(() => {
-    // эффективная тема = класс .dark на <html> (учитывает настройку «Тема»)
-    const dark = document.documentElement.classList.contains('dark');
-    const map = new MapLibreMap({
-      container: containerRef.current,
-      style: dark ? DARK_STYLE : LIGHT_STYLE,
-      center: [15, 46],
-      zoom: 3.2,
-      attributionControl: { compact: true }, // атрибуция OSM/OpenFreeMap обязательна
-    });
-    mapRef.current = map;
-    if (import.meta.env.DEV) window.__map = map; // для консольной отладки
+    let disposed = false;
     let fellBack = false;
+    let styleArrived = false; // style.load текущей попытки дошёл
+    let styleTimer = null;
 
-    const addLayers = () => {
+    const effectiveStyle = () =>
+      document.documentElement.classList.contains('dark') ? darkStyle() : LIGHT_STYLE;
+
+    const addLayers = (map) => {
       if (map.getSource('wineries')) return;
       map.addSource('wineries', {
         type: 'geojson',
@@ -179,40 +184,100 @@ export default function MapScreen() {
       setMapReady(true);
     };
 
-    map.on('style.load', addLayers);
-    map.on('error', (e) => {
-      // стиль не догрузился (офлайн) → минимальный фон, точки живут
-      if (!fellBack && !map.isStyleLoaded() && /style|Failed to fetch|NetworkError/i.test(String(e.error?.message ?? e.error ?? ''))) {
-        fellBack = true;
-        setOffline(true);
-        map.setStyle(FALLBACK_STYLE);
-      }
-    });
+    // P21.1: единый путь деградации — сетевой отказ, битый стиль и таймаут
+    // ведут в серый fallback с живыми точками; «Повторить» пробует заново.
+    const failToFallback = () => {
+      if (fellBack || disposed) return;
+      fellBack = true;
+      clearTimeout(styleTimer);
+      setMapFailed(true);
+      spawn(FALLBACK_STYLE);
+    };
+    const armStyleTimeout = () => {
+      styleArrived = false;
+      clearTimeout(styleTimer);
+      styleTimer = setTimeout(() => {
+        if (!styleArrived && !disposed) failToFallback();
+      }, STYLE_TIMEOUT_MS);
+    };
 
-    map.on('click', 'clusters', async (e) => {
-      const feature = e.features[0];
-      const zoom = await map.getSource('wineries').getClusterExpansionZoom(feature.properties.cluster_id);
-      map.easeTo({ center: feature.geometry.coordinates, zoom: zoom + 0.5 });
-    });
-    map.on('click', 'points', (e) => {
-      const id = e.features[0].properties.id;
-      setSheetFull(false);
-      setSheetId(id);
-      map.easeTo({ center: e.features[0].geometry.coordinates, padding: { bottom: 260 } });
-    });
-    map.on('mouseenter', 'points', () => (map.getCanvas().style.cursor = 'pointer'));
-    map.on('mouseleave', 'points', () => (map.getCanvas().style.cursor = ''));
+    // создать (или пересоздать) инстанс карты с данным стилем
+    const spawn = (styleArg) => {
+      const prev = mapRef.current;
+      const view = prev ? { center: prev.getCenter(), zoom: prev.getZoom() } : null;
+      markerRef.current?.remove();
+      markerRef.current = null;
+      prev?.remove();
+      setMapReady(false);
+
+      const map = new MapLibreMap({
+        container: containerRef.current,
+        style: styleArg,
+        center: view?.center ?? [15, 46],
+        zoom: view?.zoom ?? 3.2,
+        attributionControl: { compact: true }, // атрибуция OSM/OpenFreeMap обязательна
+      });
+      mapRef.current = map;
+      if (import.meta.env.DEV) window.__map = map; // для консольной отладки
+
+      map.on('style.load', () => {
+        styleArrived = true;
+        clearTimeout(styleTimer);
+        addLayers(map);
+      });
+      map.on('error', (e) => {
+        const msg = String(e.error?.message ?? e.error ?? 'map error');
+        console.error('[map]', msg);
+        if (new URLSearchParams(window.location.search).has('debug')) setDebugError(msg);
+        // ошибка уровня стиля до его загрузки → сразу fallback, не ждём таймаут
+        if (!fellBack && !styleArrived && /style|Failed to fetch|NetworkError|AJAXError/i.test(msg)) {
+          failToFallback();
+        }
+      });
+
+      map.on('click', 'clusters', async (e) => {
+        const feature = e.features[0];
+        const zoom = await map.getSource('wineries').getClusterExpansionZoom(feature.properties.cluster_id);
+        map.easeTo({ center: feature.geometry.coordinates, zoom: zoom + 0.5 });
+      });
+      map.on('click', 'points', (e) => {
+        const id = e.features[0].properties.id;
+        setSheetFull(false);
+        setSheetId(id);
+        map.easeTo({ center: e.features[0].geometry.coordinates, padding: { bottom: 260 } });
+      });
+      map.on('mouseenter', 'points', () => (map.getCanvas().style.cursor = 'pointer'));
+      map.on('mouseleave', 'points', () => (map.getCanvas().style.cursor = ''));
+
+      armStyleTimeout(); // fallback-JSON загрузится мгновенно и снимет таймер
+      return map;
+    };
+
+    // «Повторить»: свежий инстанс с настоящим стилем текущей темы
+    retryRef.current = () => {
+      if (disposed) return;
+      fellBack = false;
+      setMapFailed(false);
+      spawn(effectiveStyle());
+    };
+
+    spawn(effectiveStyle());
 
     // переключение темы вживую: событие от applyTheme (настройка или ОС)
-    const onTheme = (ev) => {
-      if (!fellBack) map.setStyle(ev.detail.dark ? DARK_STYLE : LIGHT_STYLE);
+    const onTheme = () => {
+      if (fellBack || disposed) return;
+      armStyleTimeout();
+      mapRef.current?.setStyle(effectiveStyle());
     };
     window.addEventListener('themechange', onTheme);
 
     return () => {
+      disposed = true;
+      clearTimeout(styleTimer);
       window.removeEventListener('themechange', onTheme);
       markerRef.current?.remove();
-      map.remove();
+      mapRef.current?.remove();
+      mapRef.current = null;
     };
   }, []);
 
@@ -331,9 +396,20 @@ export default function MapScreen() {
         )}
       </header>
 
-      {offline && (
-        <p className="absolute top-14 left-1/2 -translate-x-1/2 rounded-full bg-amber-100 px-3 py-1.5 text-[12px] whitespace-nowrap text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          Тайлы карты требуют сети
+      {mapFailed && (
+        <div className="absolute top-14 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-amber-100 py-1 pr-1 pl-3 text-[12px] whitespace-nowrap text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          Не удалось загрузить карту
+          <button
+            onClick={() => retryRef.current?.()}
+            className="rounded-full bg-amber-600 px-2.5 py-1 font-medium text-white"
+          >
+            Повторить
+          </button>
+        </div>
+      )}
+      {debugError && (
+        <p className="absolute top-24 left-1/2 max-w-[90%] -translate-x-1/2 truncate rounded-lg bg-red-600/90 px-3 py-1.5 text-[11px] text-white">
+          {debugError}
         </p>
       )}
 
