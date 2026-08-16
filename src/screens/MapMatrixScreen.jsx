@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Map as MapLibreMap } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { ArrowLeft, Check, Copy } from 'lucide-react';
-import { LIGHT_STYLE, PROBE_TILE, darkStyle, simpleStyle } from '../map/styles.js';
+import { LIGHT_STYLE, PROBE_TILE, darkStyle, simpleNe2Style, simpleStyle } from '../map/styles.js';
 import { setMapMode, setMapRoute, setTileLoader, toProxyUrl } from '../api/mapRoute.js';
 import { ensureMainThreadProtocol, getMtStats, resetMtStats } from '../map/mtProtocol.js';
 import { usePageTitle } from '../utils/title.js';
@@ -22,7 +22,7 @@ for (const mode of ['full', 'simple']) {
   }
 }
 
-const MODE_RU = { full: 'Полная', simple: 'Упрощённая' };
+const MODE_RU = { full: 'Векторная', simple: 'Классическая' };
 const ROUTE_RU = { direct: 'прямой', proxy: 'шлюз' };
 const LOADER_RU = { worker: 'воркеры', main: 'главный поток' };
 
@@ -41,15 +41,34 @@ async function probe(url, opts = {}) {
   }
 }
 
+// P21.9: maplibre v5 с CDN — только для проверочной ячейки, в бандл не входит
+function loadMaplibreV5() {
+  return new Promise((resolve, reject) => {
+    if (window.maplibregl?.Map) return resolve(window.maplibregl);
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css';
+    document.head.appendChild(css);
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js';
+    s.onload = () => (window.maplibregl?.Map ? resolve(window.maplibregl) : reject(new Error('глобал maplibregl не появился')));
+    s.onerror = () => reject(new Error('unpkg недоступен'));
+    document.head.appendChild(s);
+    setTimeout(() => reject(new Error('таймаут загрузки v5')), 20_000);
+  });
+}
+
 // одна ячейка матрицы: мини-карта в явной конфигурации, вердикт строкой
-async function runCell(container, { mode, route, loader, key }, dark) {
+async function runCell(container, { mode, route, loader, key }, dark, opts = {}) {
   // DEV-хук «здоровой конфигурации» — проверка рекомендации и «Применить»
   if (import.meta.env.DEV && window.__matrixForceGreen === key) {
     return { verdict: 'ok', line: 'синтетический ✅ (dev-хук __matrixForceGreen)' };
   }
   ensureMainThreadProtocol();
   resetMtStats();
-  const style = mode === 'simple' ? simpleStyle(dark) : dark ? darkStyle() : LIGHT_STYLE;
+  const MapCtor = opts.MapCtor ?? MapLibreMap;
+  const style =
+    opts.styleOverride ?? (mode === 'simple' ? simpleStyle(dark) : dark ? darkStyle() : LIGHT_STYLE);
   let tilesReq = 0;
   let tilesOk = 0;
   const transformRequest = (url, type) => {
@@ -65,7 +84,7 @@ async function runCell(container, { mode, route, loader, key }, dark) {
   const t0 = performance.now();
   let map;
   try {
-    map = new MapLibreMap({
+    map = new MapCtor({
       container,
       style,
       center: [9.19, 45.46],
@@ -205,14 +224,52 @@ export default function MapMatrixScreen() {
       say(`воркер (5c/5d): ${workerLine}`);
 
       // матрица: строго последовательно
+      const results = {};
       for (let i = 0; i < CELLS.length; i++) {
         if (cancelled) return;
         const cell = CELLS[i];
         setProgress({ i: i + 1, cell });
         const res = await runCell(cellRef.current, cell, dark);
         if (cancelled) return;
-        setRows((r) => ({ ...r, [cell.key]: res }));
+        results[cell.key] = res;
+        setRows({ ...results });
       }
+
+      // 9 · вектор на maplibre v5 (гипотеза: v6-конвейер сломан, v5 жив)
+      setProgress({ i: 9, cell: { mode: 'v5', route: 'direct', loader: 'worker' } });
+      let v5res;
+      try {
+        const v5 = await loadMaplibreV5();
+        v5res = await runCell(
+          cellRef.current,
+          { mode: 'full', route: 'direct', loader: 'worker', key: 'v5' },
+          dark,
+          { MapCtor: v5.Map, styleOverride: dark ? darkStyle() : LIGHT_STYLE }
+        );
+      } catch (e) {
+        v5res = { verdict: 'hang', line: `v5 не загрузился: ${e.message}` };
+      }
+      if (cancelled) return;
+      results.v5 = v5res;
+      setRows({ ...results });
+
+      // фолбэк-ячейка: все классические ❌ → пробуем старую подложку ne2
+      const anySimpleOk = CELLS.filter((c) => c.mode === 'simple').some(
+        (c) => results[c.key]?.verdict === 'ok'
+      );
+      if (!anySimpleOk) {
+        setProgress({ i: 10, cell: { mode: 'ne2', route: 'direct', loader: 'worker' } });
+        const ne2res = await runCell(
+          cellRef.current,
+          { mode: 'simple', route: 'direct', loader: 'worker', key: 'ne2' },
+          dark,
+          { styleOverride: simpleNe2Style(dark) }
+        );
+        if (cancelled) return;
+        results.ne2 = ne2res;
+        setRows({ ...results });
+      }
+
       setProgress(null);
       setDone(true);
     })();
@@ -247,6 +304,9 @@ export default function MapMatrixScreen() {
         const v = r ? VERDICT_UI[r.verdict] : null;
         return `  ${v ? v.icon : '…'} ${c.key}: ${r ? `${v.label} · ${r.line}` : 'не прогонялась'}${c.key === recommended ? ' ← РЕКОМЕНДАЦИЯ' : ''}`;
       }),
+      ...['v5', 'ne2']
+        .filter((k) => rows[k])
+        .map((k) => `  ${VERDICT_UI[rows[k].verdict].icon} ${k === 'v5' ? 'maplibre-v5 (вектор)' : 'simple-ne2 (фолбэк)'}: ${VERDICT_UI[rows[k].verdict].label} · ${rows[k].line}`),
       '',
       `Применённая конфигурация: ${applied ?? 'не применялась'}`,
     ];
@@ -274,8 +334,11 @@ export default function MapMatrixScreen() {
 
       {progress && (
         <p className="mt-3 rounded-xl bg-wine-100 px-3 py-2 text-sm text-wine-700 dark:bg-wine-900 dark:text-wine-200">
-          ячейка {progress.i}/8 · {MODE_RU[progress.cell.mode]} · {ROUTE_RU[progress.cell.route]} ·{' '}
-          {LOADER_RU[progress.cell.loader]}
+          {progress.cell.mode === 'v5'
+            ? 'ячейка 9 · вектор на maplibre v5 (CDN)'
+            : progress.cell.mode === 'ne2'
+              ? 'ячейка 10 · фолбэк-подложка ne2'
+              : `ячейка ${progress.i}/8 · ${MODE_RU[progress.cell.mode]} · ${ROUTE_RU[progress.cell.route]} · ${LOADER_RU[progress.cell.loader]}`}
         </p>
       )}
 
@@ -340,6 +403,26 @@ export default function MapMatrixScreen() {
           );
         })}
       </div>
+
+      {/* спец-ячейки: гипотеза v5 и фолбэк ne2 */}
+      {['v5', 'ne2'].map((k) => {
+        const r = rows[k];
+        if (!r) return null;
+        const v = VERDICT_UI[r.verdict];
+        return (
+          <div key={k} className="mt-1.5 rounded-xl bg-white p-3 dark:bg-stone-900">
+            <div className="flex items-center gap-2">
+              <span>{v.icon}</span>
+              <span className="flex-1 text-sm font-medium">
+                {k === 'v5' ? 'Вектор на maplibre v5 (проба с CDN)' : 'Классическая на подложке ne2 (фолбэк)'}
+              </span>
+            </div>
+            <p className="mt-1 pl-6 text-[12px] break-all text-stone-500 dark:text-stone-400">
+              {v.label} · {r.line}
+            </p>
+          </div>
+        );
+      })}
 
       <button
         onClick={copyReport}

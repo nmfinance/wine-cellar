@@ -615,8 +615,8 @@ export default function MapCheckScreen() {
           value: mapMode,
           onPick: setMapMode,
           options: [
-            ['full', 'Полная'],
-            ['simple', 'Упрощённая'],
+            ['full', 'Векторная'],
+            ['simple', 'Классическая'],
           ],
         },
       ].map(({ label, value, onPick, options }) => (

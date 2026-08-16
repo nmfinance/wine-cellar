@@ -1,24 +1,39 @@
-// P21.3: прокси тайлов OpenFreeMap — резервный маршрут, когда прямое
-// соединение с tiles.openfreemap.org у клиента деградирует (диагноз
-// map-check: те же URL с телефона то 200 за 221 мс, то виснут 60+ с).
+// P21.3: прокси тайлов — резервный маршрут, когда прямое соединение
+// с тайловыми хостами у клиента деградирует.
+// P21.9: два upstream'а — OpenFreeMap (вектор/растр/шрифты) и CARTO
+// (растровый бейсмэп классического режима).
 // НЕ открытый прокси: только GET и только whitelist путей.
 
-const UPSTREAM = 'https://tiles.openfreemap.org/';
-const WHITELIST = ['styles', 'planet', 'natural_earth', 'fonts', 'sprites'];
+const OFM_UPSTREAM = 'https://tiles.openfreemap.org/';
+const CARTO_UPSTREAM = 'https://basemaps.cartocdn.com/';
+const OFM_SECTIONS = ['styles', 'planet', 'natural_earth', 'fonts', 'sprites'];
 const TIMEOUT_MS = 15_000;
 
-// P21.5: разрешаем и голое имя раздела — TileJSON живёт на пути `planet`
-// БЕЗ слэша (whitelist со `startsWith('planet/')` отдавал 403 и молча
-// обезглавливал весь векторный конвейер в прокси-режиме)
-const allowed = (path) => WHITELIST.some((p) => path === p || path.startsWith(p + '/'));
-
-// path — часть URL после /tiles/ (уже без query)
-async function fetchTile(path) {
+// path — часть URL после /tiles/ (без query).
+// 'carto/rastertiles/…' → CARTO, иначе — разделы OpenFreeMap.
+function resolve(path) {
   const decoded = decodeURIComponent(path);
-  if (!allowed(decoded) || decoded.includes('..')) {
-    return { status: 403, contentType: 'application/json', body: Buffer.from('{"ok":false,"error":"path_not_allowed"}') };
+  if (decoded.includes('..')) return null;
+  if (decoded.startsWith('carto/')) {
+    const rest = decoded.slice('carto/'.length);
+    if (!rest.startsWith('rastertiles/')) return null;
+    return CARTO_UPSTREAM + path.slice('carto/'.length);
   }
-  const res = await fetch(UPSTREAM + path, {
+  // P21.5: и голое имя раздела (TileJSON живёт на пути `planet` без слэша)
+  const ok = OFM_SECTIONS.some((p) => decoded === p || decoded.startsWith(p + '/'));
+  return ok ? OFM_UPSTREAM + path : null;
+}
+
+async function fetchTile(path) {
+  const target = resolve(path);
+  if (!target) {
+    return {
+      status: 403,
+      contentType: 'application/json',
+      body: Buffer.from('{"ok":false,"error":"path_not_allowed"}'),
+    };
+  }
+  const res = await fetch(target, {
     signal: AbortSignal.timeout(TIMEOUT_MS),
     headers: { 'User-Agent': 'pogreb-proxy/1.0 (personal wine cellar app)' },
   });

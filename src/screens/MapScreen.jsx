@@ -257,8 +257,8 @@ export default function MapScreen() {
         } else if (step === 2) {
           modeRef.current = 'simple';
           setMapMode('simple');
-          setToast('Карта в упрощённом режиме');
-          setEscStatus('Упрощённый режим… 4/4');
+          setToast('Карта в классическом режиме');
+          setEscStatus('Классический режим… 4/4');
         } else {
           // все ступени исчерпаны — честный баннер, карта остаётся как есть
           setEscStatus(null);

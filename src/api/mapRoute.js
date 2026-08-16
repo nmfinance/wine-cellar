@@ -38,11 +38,18 @@ export async function setMapMode(value) {
 }
 
 // ?v=2 пробивает клиентские кэши, отравленные 403-ответами с Cache-Control
-// (баг P21.3, исправлен в P21.5); функция query не форвардит — upstream чист
-export const toProxyUrl = (url) =>
-  url.startsWith(DIRECT_PREFIX)
-    ? `${TILES_PROXY_BASE}${url.slice(DIRECT_PREFIX.length)}${url.includes('?') ? '&' : '?'}v=2`
-    : url;
+// (баг P21.3, исправлен в P21.5); функция query не форвардит — upstream чист.
+// P21.9: cartocdn (включая поддомены a-d) проксируется через /tiles/carto/
+const CARTO_RE = /^https:\/\/(?:[a-d]\.)?basemaps\.cartocdn\.com\//;
+export const toProxyUrl = (url) => {
+  if (url.startsWith(DIRECT_PREFIX)) {
+    return `${TILES_PROXY_BASE}${url.slice(DIRECT_PREFIX.length)}${url.includes('?') ? '&' : '?'}v=2`;
+  }
+  if (CARTO_RE.test(url)) {
+    return `${TILES_PROXY_BASE}carto/${url.replace(CARTO_RE, '')}${url.includes('?') ? '&' : '?'}v=2`;
+  }
+  return url;
+};
 
 // transformRequest для MapLibre: режим proxy переписывает запросы на шлюз,
 // режим tileLoader='main' оборачивает Tile и Glyphs в mt:// (главный поток;
@@ -59,8 +66,8 @@ export const makeTransformRequest = (routeRef, loaderRef = null) => (url, resour
     return { url: 'https://10.255.255.1/hang.pbf' };
   }
   let out = url;
-  if (routeRef.current === 'proxy' && out.startsWith(DIRECT_PREFIX)) {
-    out = toProxyUrl(out);
+  if (routeRef.current === 'proxy') {
+    out = toProxyUrl(out); // no-op для URL вне openfreemap/cartocdn
   }
   if (
     loaderRef?.current === 'main' &&
