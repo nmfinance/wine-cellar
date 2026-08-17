@@ -19,6 +19,7 @@ import WineFormScreen from './screens/WineFormScreen.jsx';
 import WineScreen from './screens/WineScreen.jsx';
 import WineListScreen from './screens/WineListScreen.jsx';
 import WineListResultScreen from './screens/WineListResultScreen.jsx';
+import WineryScreen from './screens/WineryScreen.jsx';
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
             <Route path="/wine/:id/edit" element={<WineFormScreen mode="edit" />} />
             <Route path="/wine/:id/taste" element={<TastingFormScreen />} />
             <Route path="/tasting/:id" element={<TastingScreen />} />
+            <Route path="/winery/:id" element={<WineryScreen />} />
             <Route path="/winelist" element={<WineListScreen />} />
             <Route path="/winelist/:id" element={<WineListResultScreen />} />
             <Route path="/stats" element={<StatsScreen />} />

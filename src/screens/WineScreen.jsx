@@ -19,7 +19,7 @@ import { db } from '../db.js';
 import { deleteWineCascade, moveTo, updateWine } from '../data/wines.js';
 import { lookupVivinoCached, refreshVivino } from '../api/vivino.js';
 import { matchScore } from '../api/score.js';
-import { ensureDeepInfo } from '../data/deep.js';
+import { ensureDeepInfo, refreshDeepInfo } from '../data/deep.js';
 import { refreshWineryInfo } from '../data/wineries.js';
 import { getScoreMode } from '../data/settings.js';
 import { usePageTitle } from '../utils/title.js';
@@ -186,6 +186,7 @@ function TasteProfile({ taste, source }) {
 
 function DeepBlock({ wine, defaultOpen }) {
   const [open, setOpen] = useState(defaultOpen);
+  const [deepRefreshing, setDeepRefreshing] = useState(false);
   // «изучаю вино…» не должно пульсировать вечно: офлайн — сразу честный
   // текст, онлайн — сдаёмся через 30 с (S6 попробует снова при след. открытии)
   const [gaveUp, setGaveUp] = useState(false);
@@ -257,6 +258,25 @@ function DeepBlock({ wine, defaultOpen }) {
                   {deep.image_association}
                 </p>
               )}
+              {deep.vintage_note && (
+                <p className="rounded-lg bg-white/60 px-3 py-2 text-sm text-stone-700 dark:bg-stone-950/30 dark:text-stone-300">
+                  🗓 {deep.vintage_note}
+                </p>
+              )}
+              <button
+                onClick={async () => {
+                  setDeepRefreshing(true);
+                  try {
+                    await refreshDeepInfo(wine);
+                  } finally {
+                    setDeepRefreshing(false);
+                  }
+                }}
+                disabled={deepRefreshing}
+                className="flex items-center gap-1 text-[11px] font-medium text-wine-600 disabled:opacity-50 dark:text-wine-400"
+              >
+                <RefreshCw className={`size-3 ${deepRefreshing ? 'animate-spin' : ''}`} /> обновить
+              </button>
             </>
           )}
         </div>

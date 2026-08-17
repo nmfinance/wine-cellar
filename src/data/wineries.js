@@ -58,21 +58,30 @@ async function fillWineryInfo(winery) {
     return;
   }
   const d = res.data;
+  // P22: S2 v3 — полный паспорт хранится как есть (passport), плоские поля
+  // остаются для совместимости (WineryBlock, гео, старые экраны)
   await db.wineries.update(winery.id, {
+    passport: {
+      knownLevel: d.known_level ?? (d.known === true ? 'partial' : 'minimal'),
+      identity: d.identity ?? null,
+      terroir: d.terroir ?? null,
+      vineyard: d.vineyard ?? null,
+      cellar: d.cellar ?? null,
+      wines: Array.isArray(d.wines) ? d.wines : [],
+    },
+    infoVersion: 3,
     known: d.known === true,
-    founded: typeof d.founded === 'number' ? d.founded : null,
-    regionNote: d.region_note ?? null,
-    portfolio: d.portfolio ?? null,
+    founded: typeof d.identity?.founded === 'number' ? d.identity.founded : null,
+    regionNote: d.identity?.appellation_zone ?? null,
     positioning: d.positioning ?? null,
     opinion: d.opinion ?? null,
     history: d.history ?? null,
-    notableWines: d.notable_wines ?? null,
     locationHint: d.location_hint ?? null,
     aiSummary: d.opinion ?? null, // совместимость со старым полем
     infoStatus: 'ready',
     updatedAt: now(),
   });
-  console.debug('[winery] справка сохранена:', winery.name);
+  console.debug('[winery] паспорт v3 сохранён:', winery.name);
 }
 
 // Гео-фаза (P17): координаты при первой дегустации вин винодельни.

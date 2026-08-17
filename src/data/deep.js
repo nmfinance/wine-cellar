@@ -29,3 +29,12 @@ export function ensureDeepInfo(wine) {
       requested.delete(wine.id);
     });
 }
+
+// P22: «обновить» в блоке «Глубже о вине» — свежий S6 с перезаписью
+// (старые aiDeep без vintage_note получают поле после обновления)
+export async function refreshDeepInfo(wine) {
+  const res = await askDeepWine(wine);
+  if (!res.ok) return res;
+  await db.wines.update(wine.id, { aiDeep: res.data, updatedAt: new Date().toISOString() });
+  return res;
+}

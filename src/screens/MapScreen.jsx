@@ -6,7 +6,9 @@ import maplibregl from 'maplibre-gl';
 
 const { Map: MapLibreMap, Marker: MapLibreMarker } = maplibregl;
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { ArrowLeft, MapPinned, Navigation } from 'lucide-react';
+import { ArrowLeft, MapPinned, Navigation, Search, X } from 'lucide-react';
+import { matchesQuery } from '../data/normalize.js';
+import BottomSheet from '../components/BottomSheet.jsx';
 import { db } from '../db.js';
 import { getScoreMode, wineScore } from '../data/settings.js';
 import { usePageTitle } from '../utils/title.js';
@@ -75,6 +77,11 @@ export default function MapScreen() {
   const [sheetFull, setSheetFull] = useState(false);
   const [refining, setRefining] = useState(null); // {id, mode:'refine'|'place'}
   const sheetRef = useRef(null);
+  // P22: поиск и фильтр стран — в памяти экрана, уход с карты сбрасывает
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [countryFilter, setCountryFilter] = useState([]); // [] = все страны
+  const [countrySheetOpen, setCountrySheetOpen] = useState(false);
 
   // винодельни с координатами и хотя бы одной дегустацией их вин;
   // оценка точки — из wineScore по режиму настроек: «Лучшая» — максимум
@@ -105,8 +112,17 @@ export default function MapScreen() {
     return result;
   });
 
+  // P22: фильтр стран сужает точки; кластеры пересчитает setData
+  const shownPoints = useMemo(
+    () =>
+      countryFilter.length
+        ? (points ?? []).filter((p) => countryFilter.includes(p.winery.country))
+        : (points ?? []),
+    [points, countryFilter]
+  );
+
   const geojson = useMemo(() => {
-    const features = (points ?? []).map(({ winery, avg }) => ({
+    const features = (shownPoints ?? []).map(({ winery, avg }) => ({
       type: 'Feature',
       geometry: { type: 'Point', coordinates: [winery.lng, winery.lat] },
       properties: {
@@ -116,8 +132,64 @@ export default function MapScreen() {
       },
     }));
     return { type: 'FeatureCollection', features };
-  }, [points]);
+  }, [shownPoints]);
   geojsonRef.current = geojson;
+
+  // P22: поиск одним запросом по двум сущностям (винодельни + вина)
+  const wineriesAll = useLiveQuery(() => db.wineries.toArray()) ?? [];
+  const winesAll = useLiveQuery(() => db.wines.toArray()) ?? [];
+  const suggestions = useMemo(() => {
+    const q = searchQuery.trim();
+    if (!q) return [];
+    const out = [];
+    for (const w of wineriesAll) {
+      if (matchesQuery([w.name], q)) {
+        out.push({ kind: 'winery', id: w.id, title: w.name, hasPoint: w.lat != null });
+      }
+    }
+    for (const w of winesAll) {
+      if (matchesQuery([w.name, w.wineryName], q)) {
+        const winery = w.wineryId ? wineriesAll.find((x) => x.id === w.wineryId) : null;
+        out.push({
+          kind: 'wine',
+          id: w.id,
+          title: w.name,
+          sub: w.wineryName || null,
+          wineryId: winery?.id ?? null,
+          hasPoint: winery?.lat != null,
+        });
+      }
+    }
+    return out.slice(0, 6);
+  }, [searchQuery, wineriesAll, winesAll]);
+
+  const pickSuggestion = (s) => {
+    setSearchOpen(false);
+    setSearchQuery('');
+    if (s.kind === 'winery') {
+      if (!s.hasPoint) return;
+      const w = wineriesAll.find((x) => x.id === s.id);
+      mapRef.current?.flyTo({ center: [w.lng, w.lat], zoom: 9, padding: { bottom: 260 } });
+      setSheetFull(false);
+      setSheetId(s.id);
+    } else if (s.hasPoint) {
+      const w = wineriesAll.find((x) => x.id === s.wineryId);
+      mapRef.current?.flyTo({ center: [w.lng, w.lat], zoom: 9, padding: { bottom: 260 } });
+      setSheetFull(false);
+      setSheetId(s.wineryId);
+    } else {
+      navigate(`/wine/${s.id}`); // вина без точки — в карточку
+    }
+  };
+
+  // страны для фильтра — из виноделен НА КАРТЕ, по алфавиту
+  const countries = useMemo(
+    () =>
+      [...new Set((points ?? []).map((p) => p.winery.country).filter(Boolean))].sort(
+        new Intl.Collator('ru').compare
+      ),
+    [points]
+  );
 
   // --- карта: слои перевешиваются на каждый style.load; при провале стиля
   // инстанс ПЕРЕСОЗДАЁТСЯ (setStyle поверх упавшего начального стиля MapLibre
@@ -487,16 +559,85 @@ export default function MapScreen() {
         </button>
         {points && (
           <span className="rounded-full bg-white/80 px-2.5 py-1 text-xs text-stone-600 backdrop-blur dark:bg-stone-900/80 dark:text-stone-300">
-            {points.length} {pluralize(points.length, 'винодельня', 'винодельни', 'виноделен')} ·{' '}
-            {points.reduce((a, p) => a + p.tastedCount, 0)}{' '}
-            {pluralize(points.reduce((a, p) => a + p.tastedCount, 0), 'вино', 'вина', 'вин')}{' '}
-            продегустировано
+            {countryFilter.length
+              ? `${shownPoints.length} из ${points.length} ${pluralize(points.length, 'винодельни', 'виноделен', 'виноделен')}`
+              : `${points.length} ${pluralize(points.length, 'винодельня', 'винодельни', 'виноделен')} · ${points.reduce((a, p) => a + p.tastedCount, 0)} ${pluralize(points.reduce((a, p) => a + p.tastedCount, 0), 'вино', 'вина', 'вин')} продегустировано`}
           </span>
         )}
       </header>
 
+      {/* P22: поиск + фильтр стран поверх карты */}
+      <div className="absolute top-14 right-2 left-2 z-10">
+        <div className="flex items-center gap-2">
+          {searchOpen ? (
+            <div className="flex flex-1 items-center gap-1 rounded-full bg-white/95 py-1 pr-1 pl-3 shadow backdrop-blur dark:bg-stone-900/95">
+              <Search className="size-4 shrink-0 text-stone-400" />
+              <input
+                autoFocus
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Винодельня или вино"
+                className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none"
+              />
+              <button
+                onClick={() => {
+                  setSearchOpen(false);
+                  setSearchQuery('');
+                }}
+                aria-label="Закрыть поиск"
+                className="grid size-7 place-items-center rounded-full text-stone-500"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setSearchOpen(true)}
+              aria-label="Поиск"
+              className="grid size-9 shrink-0 place-items-center rounded-full bg-white/90 text-stone-600 shadow backdrop-blur dark:bg-stone-900/90 dark:text-stone-300"
+            >
+              <Search className="size-4" />
+            </button>
+          )}
+          <button
+            onClick={() => setCountrySheetOpen(true)}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-[13px] shadow backdrop-blur ${
+              countryFilter.length
+                ? 'bg-wine-600 text-white dark:bg-wine-400 dark:text-stone-950'
+                : 'bg-white/90 text-stone-600 dark:bg-stone-900/90 dark:text-stone-300'
+            }`}
+          >
+            {countryFilter.length
+              ? `${countryFilter[0]}${countryFilter.length > 1 ? ` +${countryFilter.length - 1}` : ''}`
+              : 'Все страны'}
+          </button>
+        </div>
+        {searchOpen && suggestions.length > 0 && (
+          <div className="mt-1 overflow-hidden rounded-xl bg-white/95 shadow-lg backdrop-blur dark:bg-stone-900/95">
+            {suggestions.map((s) => (
+              <button
+                key={`${s.kind}:${s.id}`}
+                onClick={() => pickSuggestion(s)}
+                className="flex w-full items-center gap-2 border-b border-stone-100 px-3 py-2.5 text-left last:border-0 dark:border-stone-800"
+              >
+                <span className="shrink-0">{s.kind === 'winery' ? '🏛' : '🍷'}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm">{s.title}</span>
+                  {s.sub && (
+                    <span className="block truncate text-[11px] text-stone-400">{s.sub}</span>
+                  )}
+                </span>
+                {!s.hasPoint && (
+                  <span className="shrink-0 text-[11px] text-stone-400">не на карте</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {mapFailed && (
-        <div className="absolute top-14 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-amber-100 py-1 pr-1 pl-3 text-[12px] whitespace-nowrap text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        <div className="absolute top-[6.5rem] left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-amber-100 py-1 pr-1 pl-3 text-[12px] whitespace-nowrap text-amber-800 dark:bg-amber-950 dark:text-amber-200">
           Не удалось загрузить карту
           <button
             onClick={() => navigate('/map-check')}
@@ -520,10 +661,50 @@ export default function MapScreen() {
 
       {/* P21.8: статус эскалации — владелец видит, что процесс идёт */}
       {escStatus && !mapFailed && (
-        <p className="absolute top-14 left-1/2 -translate-x-1/2 animate-pulse rounded-full bg-stone-900/80 px-3 py-1.5 text-[12px] whitespace-nowrap text-white">
+        <p className="absolute top-[6.5rem] left-1/2 -translate-x-1/2 animate-pulse rounded-full bg-stone-900/80 px-3 py-1.5 text-[12px] whitespace-nowrap text-white">
           {escStatus}
         </p>
       )}
+
+      {/* P22: фильтр стран — механика фасетов */}
+      <BottomSheet
+        open={countrySheetOpen}
+        onClose={() => setCountrySheetOpen(false)}
+        title="Страны"
+      >
+        <div className="p-4 pb-6">
+          <div className="flex flex-wrap gap-1.5">
+            {countries.map((c) => {
+              const active = countryFilter.includes(c);
+              return (
+                <button
+                  key={c}
+                  onClick={() =>
+                    setCountryFilter((cur) =>
+                      active ? cur.filter((x) => x !== c) : [...cur, c]
+                    )
+                  }
+                  className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                    active
+                      ? 'border-wine-600 bg-wine-600 text-white dark:border-wine-400 dark:bg-wine-400 dark:text-stone-950'
+                      : 'border-stone-300 text-stone-700 dark:border-stone-600 dark:text-stone-300'
+                  }`}
+                >
+                  {c}
+                </button>
+              );
+            })}
+          </div>
+          {countryFilter.length > 0 && (
+            <button
+              onClick={() => setCountryFilter([])}
+              className="mt-3 w-full rounded-lg border border-stone-300 py-2 text-sm font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
+            >
+              Сбросить
+            </button>
+          )}
+        </div>
+      </BottomSheet>
 
       <Toast message={toast} onDone={() => setToast(null)} />
 
@@ -599,12 +780,20 @@ export default function MapScreen() {
               </button>
             )}
 
-            <a
-              href={`geo:${entry.winery.lat},${entry.winery.lng}?q=${encodeURIComponent(entry.winery.name)}`}
-              className="mt-2.5 flex items-center gap-2 rounded-lg border border-stone-200 px-3 py-2.5 text-sm font-medium text-wine-700 dark:border-stone-700 dark:text-wine-200"
-            >
-              <Navigation className="size-4" /> Маршрут
-            </a>
+            <div className="mt-2.5 flex gap-2">
+              <button
+                onClick={() => navigate(`/winery/${entry.winery.id}`)}
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-wine-600 px-3 py-2.5 text-sm font-medium text-white dark:bg-wine-400 dark:text-stone-950"
+              >
+                📋 Открыть паспорт
+              </button>
+              <a
+                href={`geo:${entry.winery.lat},${entry.winery.lng}?q=${encodeURIComponent(entry.winery.name)}`}
+                className="flex items-center gap-2 rounded-lg border border-stone-200 px-3 py-2.5 text-sm font-medium text-wine-700 dark:border-stone-700 dark:text-wine-200"
+              >
+                <Navigation className="size-4" /> Маршрут
+              </a>
+            </div>
 
             <div className="mt-3">
               <WineryBlock wineryId={entry.winery.id} defaultOpen={false} plain />

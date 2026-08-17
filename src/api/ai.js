@@ -51,13 +51,13 @@ export async function scanLabel(images, signal = null) {
 }
 
 // Текстовый вызов /ai без фото
-async function askText(kind, prompt) {
+async function askText(kind, prompt, timeoutMs = 30_000) {
   try {
     const res = await fetch(`${AI_URL}/ai`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-App-Key': APP_KEY },
       body: JSON.stringify({ kind, prompt }),
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     return await res.json();
   } catch {
@@ -65,8 +65,8 @@ async function askText(kind, prompt) {
   }
 }
 
-// S2: справка о винодельне
-export const askWineryInfo = (winery) => askText('s2', buildPromptS2(winery));
+// S2 v3: паспорт винодельни — длинный JSON, генерация небыстрая (P22)
+export const askWineryInfo = (winery) => askText('s2', buildPromptS2(winery), 90_000);
 
 // S6: «глубже о вине» (кэш навсегда в wine.aiDeep)
 export const askDeepWine = (wine) => askText('s6', buildPromptS6(wine));
