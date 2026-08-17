@@ -15,8 +15,8 @@ export default defineConfig({
       // (P21), а не молча при следующем открытии
       registerType: 'prompt',
       workbox: {
-        // включая favicon.svg и apple-touch-icon, чтобы офлайн был полным
-        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        // включая favicon.svg, apple-touch-icon и локальные стили карты (P21.11)
+        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest,json}'],
       },
       manifest: {
         name: 'Мой погреб',

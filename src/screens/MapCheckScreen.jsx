@@ -268,6 +268,9 @@ export default function MapCheckScreen() {
   const route = useLiveQuery(getMapRoute) ?? 'direct';
   const tileLoader = useLiveQuery(getTileLoader) ?? 'worker';
   const mapMode = useLiveQuery(getMapMode) ?? 'full';
+  const [darkVariant, setDarkVariant] = useState(
+    () => localStorage.getItem('darkStyleVariant') ?? 'ours'
+  );
 
   useEffect(() => {
     cancelledRef.current = false;
@@ -619,6 +622,19 @@ export default function MapCheckScreen() {
           options: [
             ['full', 'Векторная'],
             ['simple', 'Классическая'],
+          ],
+        },
+        {
+          // P21.11: временное сравнение тёмных стилей вживую
+          label: 'Тёмный стиль',
+          value: darkVariant,
+          onPick: (v) => {
+            localStorage.setItem('darkStyleVariant', v);
+            setDarkVariant(v);
+          },
+          options: [
+            ['ours', 'Наш'],
+            ['fiord', 'fiord'],
           ],
         },
       ].map(({ label, value, onPick, options }) => (

@@ -1,11 +1,23 @@
 // Стили карты — общие для MapScreen и диагностики (/map-check).
-// P21.1: тёмный — fiord, НЕ styles/dark (тот на малых зумах чёрный по дизайну).
+// P21.11: оба стиля ЛОКАЛЬНЫЕ (public/map-styles, собираются
+// npm run build:map-styles): светлый = liberty как есть, тёмный =
+// программный форк liberty с контрастной тёмной палитрой — полная
+// детализация в обеих темах, и styles-эндпоинт openfreemap в рантайме
+// не нужен. Внутренние sources/glyphs/sprite стилей ведут на
+// tiles.openfreemap.org — их маршрутизирует transformRequest.
 
-export const LIGHT_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
+export const LIGHT_STYLE = `${import.meta.env.BASE_URL}map-styles/light.json`;
 
-// DEV-хук: window.__mapStyleOverride подменяет тёмный стиль (тест fallback)
+const FIORD_STYLE = 'https://tiles.openfreemap.org/styles/fiord';
+
+// DEV-хук: window.__mapStyleOverride подменяет тёмный стиль (тест fallback);
+// localStorage 'darkStyleVariant'='fiord' — временный переключатель сравнения
+// нашего тёмного с fiord (крутилка в Диагностике карты)
 export const darkStyle = () =>
-  (import.meta.env.DEV && window.__mapStyleOverride) || 'https://tiles.openfreemap.org/styles/fiord';
+  (import.meta.env.DEV && window.__mapStyleOverride) ||
+  (localStorage.getItem('darkStyleVariant') === 'fiord'
+    ? FIORD_STYLE
+    : `${import.meta.env.BASE_URL}map-styles/dark.json`);
 
 export const effectiveStyleUrl = () =>
   document.documentElement.classList.contains('dark') ? darkStyle() : LIGHT_STYLE;

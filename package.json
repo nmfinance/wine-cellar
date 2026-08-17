@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "make-icons": "node scripts/make-icons.js",
     "deploy:proxy": "powershell -ExecutionPolicy Bypass -File proxy/deploy.ps1",
-    "deploy:worker": "npm --prefix worker run deploy"
+    "deploy:worker": "npm --prefix worker run deploy",
+    "build:map-styles": "node scripts/build-map-styles.js"
   },
   "dependencies": {
     "dexie": "^4.0.8",
