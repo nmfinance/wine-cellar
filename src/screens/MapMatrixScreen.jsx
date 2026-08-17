@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Map as MapLibreMap } from 'maplibre-gl';
+import maplibregl from 'maplibre-gl';
+
+const { Map: MapLibreMap } = maplibregl;
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { ArrowLeft, Check, Copy } from 'lucide-react';
 import { LIGHT_STYLE, PROBE_TILE, darkStyle, simpleNe2Style, simpleStyle } from '../map/styles.js';
@@ -39,23 +41,6 @@ async function probe(url, opts = {}) {
   } catch (e) {
     return `${e.name}: ${e.message}`;
   }
-}
-
-// P21.9: maplibre v5 с CDN — только для проверочной ячейки, в бандл не входит
-function loadMaplibreV5() {
-  return new Promise((resolve, reject) => {
-    if (window.maplibregl?.Map) return resolve(window.maplibregl);
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = 'https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css';
-    document.head.appendChild(css);
-    const s = document.createElement('script');
-    s.src = 'https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js';
-    s.onload = () => (window.maplibregl?.Map ? resolve(window.maplibregl) : reject(new Error('глобал maplibregl не появился')));
-    s.onerror = () => reject(new Error('unpkg недоступен'));
-    document.head.appendChild(s);
-    setTimeout(() => reject(new Error('таймаут загрузки v5')), 20_000);
-  });
 }
 
 // одна ячейка матрицы: мини-карта в явной конфигурации, вердикт строкой
@@ -235,20 +220,15 @@ export default function MapMatrixScreen() {
         setRows({ ...results });
       }
 
-      // 9 · вектор на maplibre v5 (гипотеза: v6-конвейер сломан, v5 жив)
+      // 9 · контрольная ячейка вектора на ТЕКУЩЕЙ версии бандла
+      // (P21.9 гоняла здесь v5 с CDN и подтвердила даунгрейд; P21.10 — v5 в бандле)
       setProgress({ i: 9, cell: { mode: 'v5', route: 'direct', loader: 'worker' } });
-      let v5res;
-      try {
-        const v5 = await loadMaplibreV5();
-        v5res = await runCell(
-          cellRef.current,
-          { mode: 'full', route: 'direct', loader: 'worker', key: 'v5' },
-          dark,
-          { MapCtor: v5.Map, styleOverride: dark ? darkStyle() : LIGHT_STYLE }
-        );
-      } catch (e) {
-        v5res = { verdict: 'hang', line: `v5 не загрузился: ${e.message}` };
-      }
+      const v5res = await runCell(
+        cellRef.current,
+        { mode: 'full', route: 'direct', loader: 'worker', key: 'v5' },
+        dark,
+        { styleOverride: dark ? darkStyle() : LIGHT_STYLE }
+      );
       if (cancelled) return;
       results.v5 = v5res;
       setRows({ ...results });
@@ -306,7 +286,7 @@ export default function MapMatrixScreen() {
       }),
       ...['v5', 'ne2']
         .filter((k) => rows[k])
-        .map((k) => `  ${VERDICT_UI[rows[k].verdict].icon} ${k === 'v5' ? 'maplibre-v5 (вектор)' : 'simple-ne2 (фолбэк)'}: ${VERDICT_UI[rows[k].verdict].label} · ${rows[k].line}`),
+        .map((k) => `  ${VERDICT_UI[rows[k].verdict].icon} ${k === 'v5' ? 'вектор (текущая версия)' : 'simple-ne2 (фолбэк)'}: ${VERDICT_UI[rows[k].verdict].label} · ${rows[k].line}`),
       '',
       `Применённая конфигурация: ${applied ?? 'не применялась'}`,
     ];
@@ -335,7 +315,7 @@ export default function MapMatrixScreen() {
       {progress && (
         <p className="mt-3 rounded-xl bg-wine-100 px-3 py-2 text-sm text-wine-700 dark:bg-wine-900 dark:text-wine-200">
           {progress.cell.mode === 'v5'
-            ? 'ячейка 9 · вектор на maplibre v5 (CDN)'
+            ? 'ячейка 9 · вектор (текущая версия)'
             : progress.cell.mode === 'ne2'
               ? 'ячейка 10 · фолбэк-подложка ne2'
               : `ячейка ${progress.i}/8 · ${MODE_RU[progress.cell.mode]} · ${ROUTE_RU[progress.cell.route]} · ${LOADER_RU[progress.cell.loader]}`}
@@ -414,7 +394,7 @@ export default function MapMatrixScreen() {
             <div className="flex items-center gap-2">
               <span>{v.icon}</span>
               <span className="flex-1 text-sm font-medium">
-                {k === 'v5' ? 'Вектор на maplibre v5 (проба с CDN)' : 'Классическая на подложке ne2 (фолбэк)'}
+                {k === 'v5' ? 'Вектор (текущая версия)' : 'Классическая на подложке ne2 (фолбэк)'}
               </span>
             </div>
             <p className="mt-1 pl-6 text-[12px] break-all text-stone-500 dark:text-stone-400">

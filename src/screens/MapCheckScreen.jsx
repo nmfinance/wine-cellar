@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Map as MapLibreMap } from 'maplibre-gl';
+import maplibregl from 'maplibre-gl';
+
+const { Map: MapLibreMap } = maplibregl;
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { ArrowLeft, Check, Copy, X } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';

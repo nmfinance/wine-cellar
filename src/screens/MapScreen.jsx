@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Map as MapLibreMap, Marker as MapLibreMarker } from 'maplibre-gl';
+// v5 — UMD с единственным default-экспортом (у v6 было наоборот: только named)
+import maplibregl from 'maplibre-gl';
+
+const { Map: MapLibreMap, Marker: MapLibreMarker } = maplibregl;
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { ArrowLeft, MapPinned, Navigation } from 'lucide-react';
 import { db } from '../db.js';
@@ -234,11 +237,12 @@ export default function MapScreen() {
       clearTimeout(tileWatchdogTimer);
       tileWatchdogTimer = setTimeout(() => {
         if (disposed || fellBack || mapRef.current !== map) return;
+        // P21.10: критерий залипания — тайлы не доставлены (areTilesLoaded).
+        // isSourceLoaded в v5 отстаёт от фактической доставки и эскалировал
+        // работающую карту; локальный geojson точек сюда не влияет.
         let stuck = false;
         try {
-          for (const id of Object.keys(map.getStyle()?.sources ?? {})) {
-            if (!map.isSourceLoaded(id)) stuck = true;
-          }
+          stuck = !map.areTilesLoaded();
         } catch {
           stuck = false;
         }
@@ -339,12 +343,24 @@ export default function MapScreen() {
 
     // маршрут, загрузчик и режим карты читаются из meta ДО первого spawn
     ensureMainThreadProtocol();
-    Promise.all([getMapRoute(), getTileLoader(), getMapMode()]).then(([route, loader, mode]) => {
+    (async () => {
+      // P21.10: одноразовая миграция после возврата вектора (maplibre v5) —
+      // выставленные эскалацией P21.5–P21.8 обходы сбрасываются в дефолты;
+      // если вектор всё ещё мёртв, лесенка вотчдога вернёт всё сама
+      const migrated = await db.meta.get('v5MigrationDone');
+      if (!migrated) {
+        await db.meta.put({ key: 'v5MigrationDone', value: true });
+        if ((await getMapMode()) !== 'full' || (await getMapRoute()) !== 'direct') {
+          await Promise.all([setMapMode('full'), setMapRoute('direct'), setTileLoader('worker')]);
+          setToast('Карта обновлена — пробую полный режим');
+        }
+      }
+      const [route, loader, mode] = await Promise.all([getMapRoute(), getTileLoader(), getMapMode()]);
       routeRef.current = route;
       loaderRef.current = loader;
       modeRef.current = mode;
       if (!disposed) spawn(effectiveStyle());
-    });
+    })();
 
     // переключение темы вживую: событие от applyTheme (настройка или ОС)
     const onTheme = () => {

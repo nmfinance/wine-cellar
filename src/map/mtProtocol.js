@@ -1,4 +1,7 @@
-import { addProtocol } from 'maplibre-gl';
+// v5 — UMD с единственным default-экспортом (у v6 было наоборот: только named)
+import maplibregl from 'maplibre-gl';
+
+const { addProtocol } = maplibregl;
 
 // P21.6: протокол mt:// — загрузка ресурса ГЛАВНЫМ потоком.
 // Диагноз парных отчётов: на устройстве владельца fetch изнутри
