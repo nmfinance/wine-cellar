@@ -10,6 +10,7 @@ import { ArrowLeft, MapPinned, Navigation } from 'lucide-react';
 import { db } from '../db.js';
 import { getScoreMode, wineScore } from '../data/settings.js';
 import { usePageTitle } from '../utils/title.js';
+import { useSheetDrag } from '../utils/sheetDrag.js';
 import { scoreBadgeClasses } from '../theme.js';
 import { pluralize } from '../utils/plural.js';
 import WineryBlock from '../components/WineryBlock.jsx';
@@ -73,7 +74,7 @@ export default function MapScreen() {
   const [sheetId, setSheetId] = useState(null);
   const [sheetFull, setSheetFull] = useState(false);
   const [refining, setRefining] = useState(null); // {id, mode:'refine'|'place'}
-  const swipeRef = useRef(null);
+  const sheetRef = useRef(null);
 
   // винодельни с координатами и хотя бы одной дегустацией их вин;
   // оценка точки — из wineScore по режиму настроек: «Лучшая» — максимум
@@ -459,20 +460,18 @@ export default function MapScreen() {
     else if (refining.mode === 'refine') setSheetId(id);
   };
 
-  // свайпы шита: вверх — на весь экран, вниз — свернуть/закрыть
-  const onSheetTouchStart = (e) => {
-    swipeRef.current = e.touches[0].clientY;
-  };
-  const onSheetTouchEnd = (e) => {
-    if (swipeRef.current == null) return;
-    const dy = e.changedTouches[0].clientY - swipeRef.current;
-    swipeRef.current = null;
-    if (dy < -50) setSheetFull(true);
-    else if (dy > 50) {
+  // свайпы шита (P22.1 — через useSheetDrag): вверх — на весь экран,
+  // вниз — свернуть/закрыть; скролл контента уважается, PTR не дёргается
+  const sheetDragY = useSheetDrag(sheetRef, {
+    onDown: () => {
       if (sheetFull) setSheetFull(false);
       else setSheetId(null);
-    }
-  };
+    },
+    onUp: () => setSheetFull(true),
+    // элемент шита существует только при entry && !refining — deps хука
+    // должны перевзвестись, когда он смонтируется
+    enabled: !!(entry && !refining),
+  });
 
   return (
     <div className="fixed inset-0">
@@ -566,14 +565,16 @@ export default function MapScreen() {
       {/* Шит винодельни поверх живой карты */}
       {entry && !refining && (
         <div
-          className={`absolute right-0 bottom-0 left-0 mx-auto max-w-[480px] rounded-t-2xl bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.15)] transition-[height] duration-200 dark:bg-stone-900 ${
+          className={`absolute right-0 bottom-0 left-0 mx-auto max-w-[480px] rounded-t-2xl bg-white shadow-[0_-4px_20px_rgba(0,0,0,0.15)] transition-[height,transform] duration-200 dark:bg-stone-900 ${
             sheetFull ? 'h-[92dvh]' : 'h-[45dvh]'
           }`}
-          onTouchStart={onSheetTouchStart}
-          onTouchEnd={onSheetTouchEnd}
+          ref={sheetRef}
+          style={sheetDragY > 0 ? { transform: `translateY(${sheetDragY}px)`, transition: 'none' } : undefined}
         >
-          <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-stone-300 dark:bg-stone-700" />
-          <div className="h-[calc(100%-1rem)] overflow-y-auto px-4 pt-2 pb-6">
+          <div style={{ touchAction: 'none' }}>
+            <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-stone-300 dark:bg-stone-700" />
+          </div>
+          <div className="h-[calc(100%-1rem)] touch-pan-y overflow-y-auto overscroll-contain px-4 pt-2 pb-6">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <h2 className="truncate text-base font-semibold">{entry.winery.name}</h2>

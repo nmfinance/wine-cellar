@@ -62,7 +62,7 @@ export default function TasteProfileSheet({ open, onClose }) {
 
   return (
     <BottomSheet open={open} onClose={onClose} title="Твой профиль вкуса">
-      <div className="max-h-[70dvh] overflow-y-auto px-4 pt-1 pb-6">
+      <div className="max-h-[70dvh] touch-pan-y overflow-y-auto overscroll-contain px-4 pt-1 pb-6">
         {!state ? null : state.personal ? (
           <>
             <p className="text-[13px] text-stone-500 dark:text-stone-400">
