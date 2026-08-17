@@ -175,11 +175,7 @@ export default function CellarScreen({ tab }) {
                 </h3>
                 <div className="space-y-1.5">
                   {g.wines.map((wine) => (
-                    <HistoryRow
-                      key={wine.id}
-                      wine={wine}
-                      onBought={() => setToast('В погребе!')}
-                    />
+                    <HistoryRow key={wine.id} wine={wine} />
                   ))}
                 </div>
               </div>

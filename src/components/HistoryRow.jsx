@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Wine } from 'lucide-react';
 import { db } from '../db.js';
-import { moveTo, updateWine } from '../data/wines.js';
 import { getScoreMode, wineScore } from '../data/settings.js';
 import { PLACEHOLDER_BY_COLOR, scoreBadgeClasses } from '../theme.js';
 import { pluralize } from '../utils/plural.js';
@@ -15,7 +14,7 @@ const fmtDay = (iso) =>
 
 // Строка ленты Истории: миниатюра, название, подстрока по historyReason,
 // справа — оценка последней дегустации или кнопка «Купил»
-export default function HistoryRow({ wine, onBought }) {
+export default function HistoryRow({ wine }) {
   const photo = useLiveQuery(
     () =>
       db.photos
@@ -67,14 +66,6 @@ export default function HistoryRow({ wine, onBought }) {
     subtitle = `📷 из винной карты${day ? ` · ${day}` : ''}`;
   }
 
-  const buy = async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    await moveTo(wine.id, 'cellar');
-    await updateWine(wine.id, { quantity: 1 });
-    onBought?.();
-  };
-
   return (
     <Link
       to={`/wine/${wine.id}`}
@@ -100,23 +91,17 @@ export default function HistoryRow({ wine, onBought }) {
           </span>
         )}
       </span>
-      {tastings !== undefined &&
-        (last ? (
-          score != null && (
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${scoreBadgeClasses(score)}`}
-            >
-              {score.toFixed(1)}
-            </span>
-          )
-        ) : (
-          <button
-            onClick={buy}
-            className="shrink-0 text-[13px] font-medium text-wine-600 dark:text-wine-400"
-          >
-            Купил
-          </button>
-        ))}
+      {/* P22.2: справа — всегда статус, не действие. «Купил» читался как
+          статус скана; действия (В погреб / В Wishlist) живут в карточке.
+          Для сканов без дегустаций подстрока уже называет источник —
+          не дублируем, справа пусто. */}
+      {tastings !== undefined && last && score != null && (
+        <span
+          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${scoreBadgeClasses(score)}`}
+        >
+          {score.toFixed(1)}
+        </span>
+      )}
     </Link>
   );
 }

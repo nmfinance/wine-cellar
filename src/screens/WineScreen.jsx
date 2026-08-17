@@ -485,8 +485,13 @@ export default function WineScreen() {
 
   const stockValue = (() => {
     if (isWishlist) return 'Хочу купить';
-    if (wine.status === 'history')
-      return `Выпито${wine.historyAt ? ` · ${fmtDate(wine.historyAt)}` : ''}`;
+    if (wine.status === 'history') {
+      // P22.2: честный статус по historyReason — скан не «выпит»
+      const date = wine.historyAt ? ` · ${fmtDate(wine.historyAt)}` : '';
+      if (wine.historyReason === 'scanned') return `📷 Отсканировано${date}`;
+      if (wine.historyReason === 'winelist') return `📋 Из винной карты${date}`;
+      return `Выпито${date}`;
+    }
     const parts = [`${wine.quantity} бут.`];
     if (wine.location && rack) parts.push(`${rack.name}, полка ${wine.location.shelf}`);
     else if (wine.locationFreeText) parts.push(wine.locationFreeText);
@@ -923,13 +928,22 @@ export default function WineScreen() {
               onClick={onBuy}
               className="flex-1 rounded-lg border border-stone-300 py-3 text-sm font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
             >
-              Купил снова
+              {/* P22.2: скан никогда не покупался — «снова» врёт */}
+              {wine.historyReason === 'drunk' ? 'Купил снова' : 'В погреб'}
             </button>
+            {wine.historyReason !== 'drunk' && (
+              <button
+                onClick={() => moveTo(wine.id, 'wishlist')}
+                className="flex-1 rounded-lg border border-stone-300 py-3 text-sm font-medium text-stone-500 dark:border-stone-600 dark:text-stone-400"
+              >
+                В Wishlist
+              </button>
+            )}
             <button
               onClick={() => navigate(`/wine/${wine.id}/taste`)}
               className="flex-1 rounded-lg bg-wine-600 py-3 text-sm font-medium text-white dark:bg-wine-400 dark:text-stone-950"
             >
-              🍷 Новая дегустация
+              🍷 {wine.historyReason === 'drunk' ? 'Новая дегустация' : 'Дегустация'}
             </button>
           </div>
         ) : (

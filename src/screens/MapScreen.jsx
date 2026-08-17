@@ -48,12 +48,17 @@ function dashedRingImage(size = 48) {
   return ctx.getImageData(0, 0, size, size);
 }
 
+// P22.2: для history-вин статус по historyReason — скан не «выпит»
 const STATUS_LABEL = (w) =>
   w.status === 'cellar'
     ? `в погребе ×${w.quantity}`
     : w.status === 'wishlist'
       ? 'wishlist'
-      : 'выпито';
+      : w.historyReason === 'scanned'
+        ? 'отсканировано'
+        : w.historyReason === 'winelist'
+          ? 'из винной карты'
+          : 'выпито';
 
 export default function MapScreen() {
   const navigate = useNavigate();
