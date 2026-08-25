@@ -118,6 +118,7 @@ export function WineForm({
   ); // {key, id?, blob, url, existing}
   const [removedIds, setRemovedIds] = useState([]);
   const fileRef = useRef(null);
+  const cameraInputRef = useRef(null); // P22.3: принудительная камера
   const photosRef = useRef([]);
   photosRef.current = photos;
 
@@ -338,17 +339,36 @@ export function WineForm({
               </span>
             </button>
           ))}
+          {/* P22.3: два тайла — на части устройств input без capture
+              открывает только выбор файлов, камеру надо просить явно */}
+          <button
+            type="button"
+            onClick={() => cameraInputRef.current?.click()}
+            className="grid size-[72px] shrink-0 place-items-center rounded-lg border border-dashed border-stone-300 text-stone-400 dark:border-stone-600 dark:text-stone-500"
+          >
+            <span className="flex flex-col items-center text-[11px]">
+              <Camera className="mb-0.5 size-5" />
+              Снять
+            </span>
+          </button>
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
             className="grid size-[72px] shrink-0 place-items-center rounded-lg border border-dashed border-stone-300 text-stone-400 dark:border-stone-600 dark:text-stone-500"
           >
             <span className="flex flex-col items-center text-[11px]">
-              <Camera className="mb-0.5 size-5" />
-              Фото
+              <span className="mb-0.5 text-base">🖼</span>
+              Галерея
             </span>
           </button>
-          {/* без capture: системный выбор — камера или галерея */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={onFiles}
+          />
           <input
             ref={fileRef}
             type="file"

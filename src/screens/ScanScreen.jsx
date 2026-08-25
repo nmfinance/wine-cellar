@@ -330,12 +330,22 @@ export default function ScanScreen() {
             </div>
             <div className="flex w-full max-w-xs flex-col gap-2">
               {photos.length === 1 && (
-                <button
-                  onClick={() => galleryRef.current?.click()}
-                  className="rounded-lg border border-stone-300 py-2.5 text-sm font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
-                >
-                  + Контрэтикетка
-                </button>
+                // P22.3: оба пути — на части устройств input без capture
+                // открывает только выбор файлов, камеру надо просить явно
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => cameraRef.current?.click()}
+                    className="flex-1 rounded-lg border border-stone-300 py-2.5 text-sm font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
+                  >
+                    📷 Контрэтикетка
+                  </button>
+                  <button
+                    onClick={() => galleryRef.current?.click()}
+                    className="flex-1 rounded-lg border border-stone-300 py-2.5 text-sm font-medium text-stone-700 dark:border-stone-600 dark:text-stone-300"
+                  >
+                    🖼 Из галереи
+                  </button>
+                </div>
               )}
               <button
                 onClick={doScan}

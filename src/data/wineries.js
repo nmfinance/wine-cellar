@@ -1,7 +1,7 @@
 import { db } from '../db.js';
 import { normalizeName } from './normalize.js';
-import { askWineryInfo } from '../api/ai.js';
-import { geocodeWinery } from '../api/geocode.js';
+import { askGeoCandidates, askWineryInfo } from '../api/ai.js';
+import { geocodeByCandidates, geocodeWinery } from '../api/geocode.js';
 
 const now = () => new Date().toISOString();
 
@@ -108,14 +108,61 @@ export async function ensureWineryGeo(wineryId) {
     window.dispatchEvent(
       new CustomEvent('winery-geocoded', { detail: { name: winery.name } })
     );
-  } else {
+    return;
+  }
+  // P22.3: обычный каскад не дал — один раз пробуем S7-путь автоматически
+  if (!winery.geoS7Tried) {
+    await db.wineries.update(wineryId, { geoS7Tried: true, updatedAt: now() });
+    const refined = await refineWineryGeo(wineryId);
+    if (refined.ok) return;
+  }
+  await db.wineries.update(wineryId, {
+    geoStatus: 'manual_needed',
+    needsGeocode: false,
+    geoTriedAt: now(),
+    updatedAt: now(),
+  });
+}
+
+// P22.3: «Уточнить геоданные» — S7-кандидаты → каскад Nominatim.
+// Возврат { ok:true, matched, precision } | { ok:false, attempts }.
+export async function refineWineryGeo(wineryId) {
+  const winery = await db.wineries.get(wineryId);
+  if (!winery) return { ok: false, attempts: [] };
+  const wineNames = (await db.wines.filter((w) => w.wineryId === wineryId).toArray()).map(
+    (w) => w.name
+  );
+  const res = await askGeoCandidates(winery, wineNames);
+  const candidates =
+    res.ok && Array.isArray(res.data?.candidates)
+      ? res.data.candidates.filter((c) => typeof c === 'string' && c.trim()).slice(0, 4)
+      : [];
+  // лог попыток — кнопка честно показывает, что и когда пробовали
+  await db.wineries.update(wineryId, {
+    geoTriedAt: now(),
+    geoAttempts: candidates,
+    updatedAt: now(),
+  });
+  if (!candidates.length) return { ok: false, attempts: [], error: res.error ?? 'no_candidates' };
+  // AI не знает хозяйство → кандидаты только региональные; не выдаём центр
+  // региона за «уточнение» — честный диалог и ручная установка
+  if (res.data.known === false) return { ok: false, unknown: true, attempts: candidates };
+
+  const geo = await geocodeByCandidates(candidates, winery.country);
+  if (geo) {
     await db.wineries.update(wineryId, {
-      geoStatus: 'manual_needed',
+      lat: geo.lat,
+      lng: geo.lng,
+      geoStatus: geo.precision,
       needsGeocode: false,
-      geoTriedAt: now(),
       updatedAt: now(),
     });
+    window.dispatchEvent(
+      new CustomEvent('winery-geocoded', { detail: { name: winery.name, matched: geo.matched } })
+    );
+    return { ok: true, matched: geo.matched, precision: geo.precision };
   }
+  return { ok: false, attempts: candidates };
 }
 
 // Фоновая доборка при старте: отложенные (needsGeocode) + самолечение старых

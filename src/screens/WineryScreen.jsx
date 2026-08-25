@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, ChevronDown, RefreshCw } from 'lucide-react';
 import { db } from '../db.js';
-import { refreshWineryInfo } from '../data/wineries.js';
+import { refineWineryGeo, refreshWineryInfo } from '../data/wineries.js';
+import Toast from '../components/Toast.jsx';
 import { getScoreMode, wineScore } from '../data/settings.js';
 import { POSITIONING_LABEL } from '../components/WineryBlock.jsx';
 import { scoreBadgeClasses } from '../theme.js';
@@ -131,6 +132,9 @@ export default function WineryScreen() {
   const navigate = useNavigate();
   const [geekOpen, setGeekOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [geoBusy, setGeoBusy] = useState(false);
+  const [geoFail, setGeoFail] = useState(null); // список неудачных попыток
+  const [toast, setToast] = useState(null);
 
   const winery = useLiveQuery(() => db.wineries.get(id).then((w) => w ?? null), [id]);
   usePageTitle(winery?.name ?? null);
@@ -165,6 +169,21 @@ export default function WineryScreen() {
       setRefreshing(false);
     }
   };
+
+  // P22.3: «Уточнить геоданные» — S7-кандидаты → каскад Nominatim
+  const refineGeo = async () => {
+    setGeoBusy(true);
+    setGeoFail(null);
+    try {
+      const r = await refineWineryGeo(winery.id);
+      if (r.ok) setToast(`Найдено: ${r.matched}`);
+      else setGeoFail({ attempts: r.attempts ?? [], unknown: r.unknown === true });
+    } finally {
+      setGeoBusy(false);
+    }
+  };
+  const geoOnMap = winery.lat != null;
+  const GEO_STATUS_RU = { ok: 'точное', approximate: 'приблизительное', manual: 'вручную' };
 
   // сопоставление вин хозяйства с винами пользователя (по нормализованному вхождению)
   const userMatch = (passportWine) => {
@@ -256,6 +275,57 @@ export default function WineryScreen() {
               className="flex items-center gap-1 font-medium text-wine-600 disabled:opacity-50 dark:text-wine-400"
             >
               <RefreshCw className={`size-3 ${loading ? 'animate-spin' : ''}`} /> Обновить профиль
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* P22.3: гео-строка + «Уточнить геоданные» */}
+      <div className="mx-4 mt-3 rounded-xl bg-white p-3 dark:bg-stone-900">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            {geoOnMap ? (
+              <button
+                onClick={() => navigate('/map', { state: { wineryId: winery.id } })}
+                className="text-sm font-medium text-wine-600 dark:text-wine-400"
+              >
+                📍 На карте · {GEO_STATUS_RU[winery.geoStatus] ?? winery.geoStatus}
+              </button>
+            ) : (
+              <span className="text-sm text-stone-500 dark:text-stone-400">📍 Нет на карте</span>
+            )}
+            {winery.geoTriedAt && (
+              <p className="text-[11px] text-stone-400 dark:text-stone-500">
+                пробовали: {new Date(winery.geoTriedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                {winery.geoAttempts?.length ? `, ${winery.geoAttempts.length} вариант(а)` : ''}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={refineGeo}
+            disabled={geoBusy}
+            className={`shrink-0 rounded-lg px-3 py-2 text-[13px] font-medium disabled:opacity-50 ${
+              winery.geoStatus === 'manual_needed' && !geoOnMap
+                ? 'bg-wine-600 text-white dark:bg-wine-400 dark:text-stone-950'
+                : 'border border-stone-300 text-stone-600 dark:border-stone-600 dark:text-stone-300'
+            }`}
+          >
+            {geoBusy ? 'ищу…' : '📍 Уточнить геоданные'}
+          </button>
+        </div>
+        {geoFail && (
+          <div className="mt-2 rounded-lg bg-amber-50 p-2.5 dark:bg-amber-950">
+            <p className="text-[13px] text-amber-900 dark:text-amber-200">
+              {geoFail.unknown ? 'AI не знает это хозяйство — было бы нечестно ставить точку. Пробовали:' : 'Не нашлось по:'}
+            </p>
+            <ul className="mt-1 list-disc pl-4 text-[12px] text-amber-800 dark:text-amber-300">
+              {geoFail.attempts.length ? geoFail.attempts.map((a) => <li key={a}>{a}</li>) : <li>AI не дал кандидатов</li>}
+            </ul>
+            <button
+              onClick={() => navigate('/map', { state: { placeWineryId: winery.id } })}
+              className="mt-2 w-full rounded-lg bg-amber-600 py-2 text-[13px] font-medium text-white"
+            >
+              Поставить вручную
             </button>
           </div>
         )}
@@ -448,6 +518,8 @@ export default function WineryScreen() {
       {loading && (
         <p className="mt-4 animate-pulse text-center text-sm text-stone-400">обновляю паспорт…</p>
       )}
+
+      <Toast message={toast} onDone={() => setToast(null)} />
     </div>
   );
 }

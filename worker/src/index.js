@@ -4,7 +4,7 @@
 import { safeParseJson } from './parse.js';
 
 const ALLOWED_ORIGINS = ['https://nmfinance.github.io', 'http://localhost:5173'];
-const TEMPERATURE_BY_KIND = { s1: 0.2, s2: 0.5, s3: 0.7, s4: 0.3, s5: 0.3, s6: 0.6 };
+const TEMPERATURE_BY_KIND = { s1: 0.2, s2: 0.5, s3: 0.7, s4: 0.3, s5: 0.3, s6: 0.6, s7: 0.2 };
 
 function corsHeaders(request) {
   const origin = request.headers.get('Origin');

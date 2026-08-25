@@ -7,6 +7,7 @@ import {
   buildPromptS4,
   buildPromptS5,
   buildPromptS6,
+  buildPromptS7,
 } from '../ai/prompts.js';
 import { buildTasteProfile } from '../ai/profile.js';
 
@@ -70,6 +71,10 @@ export const askWineryInfo = (winery) => askText('s2', buildPromptS2(winery), 90
 
 // S6: «глубже о вине» (кэш навсегда в wine.aiDeep)
 export const askDeepWine = (wine) => askText('s6', buildPromptS6(wine));
+
+// S7: гео-кандидаты для геокодера (P22.3, «Уточнить геоданные»)
+export const askGeoCandidates = (winery, wineNames) =>
+  askText('s7', buildPromptS7(winery, wineNames));
 
 // S3: вопросы дегустации (при открытии опросника)
 export const askTastingQuestions = (wine, grapeExperience, sommelierTips) =>

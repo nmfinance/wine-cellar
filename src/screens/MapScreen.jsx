@@ -8,6 +8,7 @@ const { Map: MapLibreMap, Marker: MapLibreMarker } = maplibregl;
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { ArrowLeft, MapPinned, Navigation, Search, X } from 'lucide-react';
 import { matchesQuery } from '../data/normalize.js';
+import { refineWineryGeo } from '../data/wineries.js';
 import BottomSheet from '../components/BottomSheet.jsx';
 import { db } from '../db.js';
 import { getScoreMode, wineScore } from '../data/settings.js';
@@ -784,6 +785,24 @@ export default function MapScreen() {
                 <span className="font-medium underline">Уточнить</span>
               </button>
             )}
+
+            {/* P22.3: переуточнение через S7 + Nominatim */}
+            <button
+              onClick={async () => {
+                setToast('Ищу геоданные…');
+                const r = await refineWineryGeo(entry.winery.id);
+                if (r.ok) {
+                  setToast(`Найдено: ${r.matched}`);
+                  const w = await db.wineries.get(entry.winery.id);
+                  mapRef.current?.flyTo({ center: [w.lng, w.lat], zoom: 11, padding: { bottom: 260 } });
+                } else {
+                  setToast('Не нашлось — поставь вручную перетаскиванием');
+                }
+              }}
+              className="mt-2 w-full rounded-lg border border-stone-200 px-3 py-2 text-left text-[13px] text-stone-600 dark:border-stone-700 dark:text-stone-300"
+            >
+              📍 Уточнить геоданные (AI + геокодер)
+            </button>
 
             <div className="mt-2.5 flex gap-2">
               <button
